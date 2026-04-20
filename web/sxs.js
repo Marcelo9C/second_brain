@@ -4,6 +4,9 @@ const state = {
   evaluations: [],
   isEditedA: false,
   isEditedB: false,
+  candidateResults: { a: null, b: null },
+  presentationMap: { a: "a", b: "b" },
+  activeBlindMode: false,
   resultA: null,
   resultB: null,
 };
@@ -105,6 +108,7 @@ function totalTokens(result) {
 function showNotice(message, options = {}) {
   const title = options.title || "Aviso";
   const buttonLabel = options.buttonLabel || "OK";
+  const onClose = typeof options.onClose === "function" ? options.onClose : null;
 
   const existing = document.querySelector(".app-modal-backdrop");
   if (existing) {
@@ -130,6 +134,9 @@ function showNotice(message, options = {}) {
   body.id = "app-modal-message";
   body.className = "app-modal-message";
   body.textContent = message;
+  if (options.preserveWhitespace) {
+    body.style.whiteSpace = "pre-line";
+  }
 
   const actions = document.createElement("div");
   actions.className = "app-modal-actions";
@@ -142,6 +149,9 @@ function showNotice(message, options = {}) {
   const close = () => {
     backdrop.remove();
     document.removeEventListener("keydown", handleKeydown);
+    if (onClose) {
+      onClose();
+    }
   };
 
   const handleKeydown = (event) => {
@@ -192,6 +202,40 @@ function buildMessages(systemPrompt, prompt) {
 
   messages.push({ role: "user", content: prompt });
   return messages;
+}
+
+function buildPresentationMap(isBlind) {
+  if (!isBlind || Math.random() < 0.5) {
+    return { a: "a", b: "b" };
+  }
+
+  return { a: "b", b: "a" };
+}
+
+function candidateKeyForDisplay(slot) {
+  return state.presentationMap[slot] || slot;
+}
+
+function displaySlotForCandidate(candidateKey) {
+  return Object.keys(state.presentationMap).find((slot) => state.presentationMap[slot] === candidateKey) || candidateKey;
+}
+
+function modelNameForCandidate(candidateKey) {
+  return candidateKey === "a" ? elements.modelSelectA.value : elements.modelSelectB.value;
+}
+
+function contentForResult(result) {
+  return result?.message?.content || "";
+}
+
+function revealPresentationLabels() {
+  const candidateA = candidateKeyForDisplay("a");
+  const candidateB = candidateKeyForDisplay("b");
+
+  elements.labelA.textContent = modelNameForCandidate(candidateA);
+  elements.labelB.textContent = modelNameForCandidate(candidateB);
+  elements.labelA.classList.add("revealed");
+  elements.labelB.classList.add("revealed");
 }
 
 async function init() {
@@ -364,7 +408,7 @@ async function loadModels() {
   elements.modelCount.textContent = `${state.models.length} modelos`;
 }
 
-function renderResult(key, response) {
+function renderResult(key, response, candidateKey) {
   const result = response?.result || response || {};
   const textarea = key === "a" ? elements.outputA : elements.outputB;
   const outputContainer = key === "a" ? elements.outputRenderA : elements.outputRenderB;
@@ -380,11 +424,11 @@ function renderResult(key, response) {
   textarea.value = content;
   renderMath(outputContainer, content);
 
-  if (elements.toggleBlind.checked) {
+  if (state.activeBlindMode) {
     labelEl.textContent = `Modelo ${key.toUpperCase()} (Oculto)`;
     labelEl.classList.remove("revealed");
   } else {
-    labelEl.textContent = key === "a" ? elements.modelSelectA.value : elements.modelSelectB.value;
+    labelEl.textContent = modelNameForCandidate(candidateKey);
   }
 
   const latency = nanosToMs(result.total_duration);
@@ -488,6 +532,9 @@ elements.sxsForm.addEventListener("submit", async (event) => {
 
   state.isEditedA = false;
   state.isEditedB = false;
+  state.candidateResults = { a: null, b: null };
+  state.presentationMap = { a: "a", b: "b" };
+  state.activeBlindMode = elements.toggleBlind.checked;
   state.resultA = null;
   state.resultB = null;
   elements.annotationPanel.style.display = "none";
@@ -504,6 +551,9 @@ elements.sxsForm.addEventListener("submit", async (event) => {
   elements.workspace.classList.add("sxs-mode");
   elements.diffPanel.style.display = "none";
   setBusy(true);
+
+  const presentationMap = buildPresentationMap(state.activeBlindMode);
+  state.presentationMap = presentationMap;
 
   const requestFor = (modelName, key) => {
     let sys = elements.systemPrompt.value.trim();
@@ -556,11 +606,15 @@ elements.sxsForm.addEventListener("submit", async (event) => {
       }),
     ]);
 
-    state.resultA = resA.result || resA;
-    state.resultB = resB.result || resB;
+    state.candidateResults = {
+      a: resA.result || resA,
+      b: resB.result || resB,
+    };
+    state.resultA = state.candidateResults[presentationMap.a];
+    state.resultB = state.candidateResults[presentationMap.b];
 
-    renderResult("a", resA);
-    renderResult("b", resB);
+    renderResult("a", state.resultA, presentationMap.a);
+    renderResult("b", state.resultB, presentationMap.b);
     renderDiff();
 
     elements.annotationPanel.style.display = "flex";
@@ -592,9 +646,18 @@ async function submitSelection(chosenKey) {
   const scoreG = parseInt(elements.scoreGrounding.value, 10);
   const scoreH = parseInt(elements.scoreHelpfulness.value, 10);
   const scoreF = parseInt(elements.scoreFactuality.value, 10);
-  const rejected = chosen === "A" ? "B" : "A";
-
+  const rejectedDisplayKey = chosenKey === "a" ? "b" : "a";
+  const chosenCandidateKey = candidateKeyForDisplay(chosenKey);
+  const rejectedCandidateKey = candidateKeyForDisplay(rejectedDisplayKey);
+  const chosenCandidate = chosenCandidateKey.toUpperCase();
+  const rejectedCandidate = rejectedCandidateKey.toUpperCase();
   const isDual = elements.toggleDualPrompt.checked;
+  const candidateResultA = state.candidateResults.a;
+  const candidateResultB = state.candidateResults.b;
+  const editedByDisplay = {
+    a: state.isEditedA,
+    b: state.isEditedB,
+  };
 
   const payload = {
     study_label: elements.studyLabel.value.trim() || "SxS Eval",
@@ -604,8 +667,8 @@ async function submitSelection(chosenKey) {
     prompt_original_b: isDual ? elements.userPromptB.value.trim() : null,
     system_prompt_a: isDual ? elements.systemPromptA.value.trim() : null,
     system_prompt_b: isDual ? elements.systemPromptB.value.trim() : null,
-    output_a: elements.outputA.value,
-    output_b: elements.outputB.value,
+    output_a: contentForResult(candidateResultA),
+    output_b: contentForResult(candidateResultB),
     candidate_a_label: elements.modelSelectA.value,
     candidate_b_label: elements.modelSelectB.value,
     candidate_a_params: {
@@ -616,29 +679,28 @@ async function submitSelection(chosenKey) {
       temperature: parseFloat(elements.temperature.value),
       seed: parseInt(elements.seed.value, 10),
     },
-    factuality: { a: chosen === "A" ? scoreF : 3, b: chosen === "B" ? scoreF : 3 },
-    helpfulness: { a: chosen === "A" ? scoreH : 3, b: chosen === "B" ? scoreH : 3 },
-    grounding: { a: chosen === "A" ? scoreG : 3, b: chosen === "B" ? scoreG : 3 },
-    chosen,
-    rejected,
+    factuality: { a: chosenCandidate === "A" ? scoreF : 3, b: chosenCandidate === "B" ? scoreF : 3 },
+    helpfulness: { a: chosenCandidate === "A" ? scoreH : 3, b: chosenCandidate === "B" ? scoreH : 3 },
+    grounding: { a: chosenCandidate === "A" ? scoreG : 3, b: chosenCandidate === "B" ? scoreG : 3 },
+    chosen: chosenCandidate,
+    rejected: rejectedCandidate,
     rationale,
     metadata: {
-      is_edited_a: state.isEditedA,
-      is_edited_b: state.isEditedB,
-      latency_a_ms: nanosToMs(state.resultA.total_duration),
-      latency_b_ms: nanosToMs(state.resultB.total_duration),
-      tokens_a: totalTokens(state.resultA),
-      tokens_b: totalTokens(state.resultB),
-      blind_mode: elements.toggleBlind.checked,
+      is_edited_a: editedByDisplay[displaySlotForCandidate("a")],
+      is_edited_b: editedByDisplay[displaySlotForCandidate("b")],
+      latency_a_ms: nanosToMs(candidateResultA?.total_duration),
+      latency_b_ms: nanosToMs(candidateResultB?.total_duration),
+      tokens_a: totalTokens(candidateResultA),
+      tokens_b: totalTokens(candidateResultB),
+      blind_mode: state.activeBlindMode,
+      selected_display_slot: chosen,
+      display_slot_a_candidate: candidateKeyForDisplay("a").toUpperCase(),
+      display_slot_b_candidate: candidateKeyForDisplay("b").toUpperCase(),
     },
     tags: Array.from(document.querySelectorAll(".flag-chip input:checked")).map((input) => input.value),
   };
 
-  // Reveal model names
-  elements.labelA.textContent = elements.modelSelectA.value;
-  elements.labelB.textContent = elements.modelSelectB.value;
-  elements.labelA.classList.add("revealed");
-  elements.labelB.classList.add("revealed");
+  revealPresentationLabels();
 
   try {
     await fetchJson("/api/annotations/sxs", {
@@ -649,19 +711,33 @@ async function submitSelection(chosenKey) {
 
     state.evaluations.unshift({
       studyLabel: payload.study_label,
-      chosenLabel: chosen === "A" ? payload.candidate_a_label : payload.candidate_b_label,
+      chosenLabel: chosenCandidate === "A" ? payload.candidate_a_label : payload.candidate_b_label,
       rationale,
     });
     renderEvaluationHistory();
 
-    showNotice("Avaliacao salva com sucesso.", { title: "Tudo certo" });
-    resetForm();
+    const successMessage = state.activeBlindMode
+      ? `Avaliacao salva com sucesso.\n\nModelo A exibido: ${modelNameForCandidate(candidateKeyForDisplay("a"))}\nModelo B exibido: ${modelNameForCandidate(candidateKeyForDisplay("b"))}\nMelhor resposta escolhida: Modelo ${chosen} -> ${chosenCandidate === "A" ? payload.candidate_a_label : payload.candidate_b_label}`
+      : "Avaliacao salva com sucesso.";
+
+    showNotice(successMessage, {
+      title: "Tudo certo",
+      preserveWhitespace: true,
+      onClose: resetForm,
+    });
   } catch (error) {
     showNotice(`Erro ao salvar avaliacao: ${error.message}`, { title: "Falha" });
   }
 }
 
 function resetForm() {
+  state.isEditedA = false;
+  state.isEditedB = false;
+  state.candidateResults = { a: null, b: null };
+  state.presentationMap = { a: "a", b: "b" };
+  state.activeBlindMode = false;
+  state.resultA = null;
+  state.resultB = null;
   elements.annotationPanel.style.display = "none";
   elements.rationale.value = "";
   elements.outputA.value = "";
@@ -678,6 +754,8 @@ function resetForm() {
   elements.labelB.classList.remove("revealed");
   elements.labelA.textContent = "Modelo A";
   elements.labelB.textContent = "Modelo B";
+  elements.chooseA.classList.remove("active");
+  elements.chooseB.classList.remove("active");
 }
 
 elements.chooseA.addEventListener("click", () => {
