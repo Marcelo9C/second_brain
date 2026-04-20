@@ -22,84 +22,101 @@
           </div>
         </div>
 
-        <div class="status-strip">
-          <div id="health-badge" class="badge">Verificando...</div>
-          <div id="model-count" class="subtle"></div>
-        </div>
+        <section class="lab-card">
+          <div class="panel-header tight">
+            <p class="eyebrow">System Health</p>
+          </div>
+          <div class="status-strip">
+            <div id="health-badge" class="badge">Verificando...</div>
+            <div id="model-count" class="subtle"></div>
+          </div>
+        </section>
 
-        <div class="lab-controls">
-          <label class="switch-field">
-            <input type="checkbox" id="toggle-blind" checked />
-            <span>Blind Mode</span>
-          </label>
-          <label class="switch-field">
-            <input type="checkbox" id="toggle-dual-prompt" />
-            <span>Dual Prompts</span>
-          </label>
-        </div>
-
-        <form id="sxs-form" class="form-stack" novalidate>
-          <div class="field-grid">
-            <label>
-              <span>Modelo A</span>
-              <select id="model-select-a" required></select>
+        <section class="lab-card">
+          <div class="panel-header tight">
+            <p class="eyebrow">Experiment Settings</p>
+          </div>
+          <div class="lab-controls">
+            <label class="switch-wrapper">
+              <input type="checkbox" id="toggle-blind" style="display: none;" checked />
+              <div class="toggle-bg"><div class="toggle-circle"></div></div>
+              <span>Blind Mode</span>
             </label>
-            <label>
-              <span>Modelo B</span>
-              <select id="model-select-b" required></select>
+            <label class="switch-wrapper">
+              <input type="checkbox" id="toggle-dual-prompt" style="display: none;" />
+              <div class="toggle-bg"><div class="toggle-circle"></div></div>
+              <span>Dual Prompts</span>
             </label>
           </div>
+        </section>
 
-          <label>
-            <span>Rótulo do Estudo</span>
-            <input id="study-label" type="text" placeholder="ex.: v1.2 vs v1.3 grounding" />
-          </label>
-
-          <div id="unified-prompt-group">
-            <label>
-              <span>System Prompt (Global)</span>
-              <textarea id="system-prompt" rows="3" placeholder="Instruções compartilhadas..."></textarea>
-            </label>
-            <label>
-              <span>Prompt (Global)</span>
-              <textarea id="user-prompt" rows="5" placeholder="Pergunta ou tarefa para ambos os modelos..." required></textarea>
-            </label>
+        <section class="lab-card">
+          <div class="panel-header tight">
+            <p class="eyebrow">Evaluation Forge</p>
           </div>
-
-          <div id="dual-prompt-group" style="display: none;">
+          <form id="sxs-form" class="form-stack" novalidate>
             <div class="field-grid">
-              <div class="prompt-col">
-                <p class="eyebrow">Lado A</p>
-                <label>
-                  <span>System Prompt A</span>
-                  <textarea id="system-prompt-a" rows="2" placeholder="Instruções A..."></textarea>
-                </label>
-                <label>
-                  <span>User Prompt A</span>
-                  <textarea id="user-prompt-a" rows="4" placeholder="Pergunta A..."></textarea>
-                </label>
-              </div>
-              <div class="prompt-col">
-                <p class="eyebrow">Lado B</p>
-                <label>
-                  <span>System Prompt B</span>
-                  <textarea id="system-prompt-b" rows="2" placeholder="Instruções B..."></textarea>
-                </label>
-                <label>
-                  <span>User Prompt B</span>
-                  <textarea id="user-prompt-b" rows="4" placeholder="Pergunta B..."></textarea>
-                </label>
+              <label>
+                <span>Modelo A</span>
+                <select id="model-select-a" required></select>
+              </label>
+              <label>
+                <span>Modelo B</span>
+                <select id="model-select-b" required></select>
+              </label>
+            </div>
+
+            <label>
+              <span>Rótulo do Estudo</span>
+              <input id="study-label" type="text" placeholder="ex.: v1.2 vs v1.3 grounding" />
+            </label>
+
+            <div id="unified-prompt-group">
+              <label>
+                <span>System Prompt (Global)</span>
+                <textarea id="system-prompt" rows="3" placeholder="Instruções compartilhadas..."></textarea>
+              </label>
+              <label>
+                <span>Prompt (Global)</span>
+                <textarea id="user-prompt" rows="5" placeholder="Pergunta ou tarefa para ambos os modelos..." required></textarea>
+              </label>
+            </div>
+
+            <div id="dual-prompt-group" style="display: none;">
+              <div class="field-grid">
+                <div class="prompt-col">
+                  <p class="eyebrow">Lado A</p>
+                  <label>
+                    <span>System Prompt A</span>
+                    <textarea id="system-prompt-a" rows="2" placeholder="Instruções A..."></textarea>
+                  </label>
+                  <label>
+                    <span>User Prompt A</span>
+                    <textarea id="user-prompt-a" rows="4" placeholder="Pergunta A..."></textarea>
+                  </label>
+                </div>
+                <div class="prompt-col">
+                  <p class="eyebrow">Lado B</p>
+                  <label>
+                    <span>System Prompt B</span>
+                    <textarea id="system-prompt-b" rows="2" placeholder="Instruções B..."></textarea>
+                  </label>
+                  <label>
+                    <span>User Prompt B</span>
+                    <textarea id="user-prompt-b" rows="4" placeholder="Pergunta B..."></textarea>
+                  </label>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div class="field-grid compact">
-            <label><span>Temp</span><input id="temperature" type="number" step="0.1" value="0" /></label>
-            <label><span>Seed</span><input id="seed" type="number" value="7" /></label>
-          </div>
+            <div class="field-grid compact">
+              <label><span>Temp</span><input id="temperature" type="number" step="0.1" value="0" /></label>
+              <label><span>Seed</span><input id="seed" type="number" value="7" /></label>
+            </div>
 
-          <button type="submit" id="run-btn" class="btn-primary">Executar Comparação</button>
-        </form>
+            <button type="submit" id="run-btn" class="btn-primary">Executar Comparação</button>
+          </form>
+        </section>
 
         <section class="ollama-panel">
           <div class="panel-header tight">

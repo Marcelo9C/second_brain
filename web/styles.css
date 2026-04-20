@@ -17,6 +17,8 @@
   --user: #f0f4f8;
   --assistant: rgba(0, 220, 130, 0.04);
   --shadow: 0 12px 32px rgba(0, 40, 100, 0.03); /* Blue-tinted shadow */
+  --shadow-gray: 0 8px 24px rgba(0, 0, 0, 0.06);
+  --shadow-green: 0 8px 30px rgba(0, 220, 130, 0.15);
   --radius: 12px;
   --radius-lg: 24px;
   --font-heading: "Manrope", sans-serif;
@@ -157,79 +159,41 @@ textarea,
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap; /* Ensure items wrap on narrow containers */
+  flex-wrap: wrap; 
 }
 
-.panel-header {
-  margin-bottom: 14px;
-}
+.panel-header { margin-bottom: 14px; }
+.panel-header.tight { margin-bottom: 12px; }
 
-.panel-header.tight {
-  margin-bottom: 12px;
-}
+.form-stack { display: flex; flex-direction: column; gap: 24px; }
+.field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.field-grid.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
-.form-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
+label { display: flex; flex-direction: column; gap: 6px; }
+label span { font-size: 0.92rem; font-weight: 600; }
 
-.field-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.field-grid.compact {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-label span {
-  font-size: 0.92rem;
-  font-weight: 600;
-}
-
-input,
-select,
-textarea,
-button {
+input, select, textarea, button {
   border: 1px solid var(--border-strong);
   background: var(--panel-strong);
   color: var(--text);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: var(--radius);
 }
 
-input:focus,
-select:focus,
-textarea:focus {
+input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
-input,
-select,
-textarea {
-  padding: 10px 12px;
-  width: 100%;
-}
-
-textarea {
-  resize: vertical;
-}
+input, select, textarea { padding: 10px 12px; width: 100%; }
+textarea { resize: vertical; }
 
 button {
   padding: 14px 20px;
   cursor: pointer;
   font-weight: 700;
   font-family: var(--font-heading);
-  border-radius: var(--radius);
 }
 
 button:hover {
@@ -237,45 +201,10 @@ button:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
-button:active {
-  transform: translateY(0);
-}
-
-button[type="submit"],
-#submit-chat,
-#run-embeddings {
+button[type="submit"] {
   background: var(--accent);
   color: white;
   border: none;
-  font-size: 1rem;
-}
-
-button[type="submit"]:hover,
-#submit-chat:hover,
-#run-embeddings:hover {
-  background: var(--accent-strong);
-}
-
-.ghost {
-  background: transparent;
-}
-
-.compact-button {
-  padding: 9px 12px;
-}
-
-.check {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-}
-
-.check input {
-  width: auto;
-}
-
-.keep-alive {
-  min-width: 110px;
 }
 
 .badge {
@@ -292,48 +221,116 @@ button[type="submit"]:hover,
   border: 1px solid var(--border-strong);
 }
 
-.badge.ok {
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-color: transparent;
-}
-
-.badge.offline {
-  color: var(--warm);
-  background: rgba(255, 94, 58, 0.08);
-  border-color: transparent;
-}
+.badge.ok { color: var(--accent-strong); background: var(--accent-soft); border-color: transparent; }
+.badge.offline { color: var(--warm); background: rgba(255, 94, 58, 0.08); border-color: transparent; }
+.badge.warning { color: #f97316; background: rgba(249, 115, 22, 0.08); border-color: transparent; }
 
 .conversation-panel,
-.detail-block,
 .embeddings-panel,
 .history-panel,
 .retrieval-panel,
-.ollama-panel {
-  background: var(--panel);
+.ollama-panel,
+.lab-card {
+  background: white;
   border: 1px solid var(--border-strong);
-  backdrop-filter: var(--glass);
-  -webkit-backdrop-filter: var(--glass);
-  box-shadow: var(--shadow);
-  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-gray);
+  border-radius: var(--radius);
   transition: transform 0.3s ease, box-shadow 0.3s ease;
+  padding: 24px;
 }
 
-.conversation-panel:hover,
-.embeddings-panel:hover,
-.history-panel:hover,
-.retrieval-panel:hover,
-.ollama-panel:hover {
+.lab-card.active,
+.lab-card:focus-within {
+  box-shadow: var(--shadow-green) !important;
+  border-color: var(--accent);
+}
+
+.lab-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 16px 40px rgba(0, 40, 100, 0.05);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
 }
 
-.conversation-panel,
-.embeddings-panel,
-.history-panel,
-.retrieval-panel,
-.ollama-panel {
-  padding: 32px;
+/* Switch styling */
+.switch-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 8px 0;
+}
+
+.switch-field input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-field span {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.switch-field::after {
+  content: "";
+  width: 40px;
+  height: 20px;
+  background: var(--bg-subtle);
+  border-radius: 20px;
+  position: relative;
+  transition: background 0.3s;
+  border: 1px solid var(--border);
+}
+
+.switch-field::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  position: absolute;
+  right: 25px; /* Offset to stay inside the switch after */
+  z-index: 1;
+  transition: transform 0.3s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Hard to position perfectly with ::before in label, let's refactor slightly in HTML later, 
+   but for now we'll use a more robust CSS approach if possible or just use standard modern styling */
+
+.switch-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.toggle-bg {
+  width: 42px;
+  height: 22px;
+  background: #e2e8f0;
+  border-radius: 22px;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.toggle-circle {
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+input:checked + .toggle-bg {
+  background: var(--accent);
+}
+
+input:checked + .toggle-bg .toggle-circle {
+  transform: translateX(20px);
 }
 
 .conversation {
@@ -728,12 +725,14 @@ input[type="range"] {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 8px 16px;
+  background: white;
   border: 1px solid var(--border);
   border-radius: 20px;
   font-size: 0.85rem;
   cursor: pointer;
-  transition: all 0.2s;
+  box-shadow: var(--shadow-gray);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   user-select: none;
 }
 
@@ -742,9 +741,10 @@ input[type="range"] {
 }
 
 .flag-chip:has(input:checked) {
-  background: var(--accent-soft);
+  box-shadow: var(--shadow-green);
   border-color: var(--accent);
   color: var(--accent-strong);
+  transform: translateY(-1px);
 }
 
 .annotation-actions {
@@ -762,12 +762,18 @@ input[type="range"] {
   border: none;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.2s, opacity 0.2s;
+  box-shadow: var(--shadow-gray);
+  transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .btn-choose:hover {
   transform: translateY(-2px);
-  opacity: 0.9;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+}
+
+.btn-choose.active {
+  box-shadow: var(--shadow-green) !important;
+  border: 1px solid var(--accent);
 }
 
 .btn-choose.primary {
@@ -776,6 +782,11 @@ input[type="range"] {
 
 #choose-b.btn-choose {
   background: #f97316;
+}
+
+#choose-b.btn-choose.active {
+  box-shadow: 0 8px 30px rgba(249, 115, 22, 0.2) !important;
+  border-color: #f97316;
 }
 
 .rationale-textarea {

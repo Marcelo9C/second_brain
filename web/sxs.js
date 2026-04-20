@@ -178,6 +178,9 @@ async function init() {
 
   await Promise.all([pollHealth(), loadModels()]);
   renderEvaluationHistory();
+
+  // Polling a cada 30 segundos para evitar selo travado
+  setInterval(pollHealth, 30000);
 }
 
 async function pollHealth() {
@@ -637,7 +640,15 @@ function resetForm() {
   elements.labelB.textContent = "Modelo B";
 }
 
-elements.chooseA.addEventListener("click", () => submitSelection("a"));
-elements.chooseB.addEventListener("click", () => submitSelection("b"));
+elements.chooseA.addEventListener("click", () => {
+  elements.chooseA.classList.add("active");
+  elements.chooseB.classList.remove("active");
+  submitSelection("a");
+});
+elements.chooseB.addEventListener("click", () => {
+  elements.chooseB.classList.add("active");
+  elements.chooseA.classList.remove("active");
+  submitSelection("b");
+});
 
 init();
