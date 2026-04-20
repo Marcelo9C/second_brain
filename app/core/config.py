@@ -21,6 +21,7 @@ class Settings:
     postgres_dsn: str = "postgresql://postgres:postgres@127.0.0.1:5433/second_brain"
     postgres_schema: str = "research"
     ollama_base_url: str = "http://127.0.0.1:11434"
+    gemini_api_key: str | None = None
     default_embedding_model: str = "all-MiniLM-L6-v2"
     default_embedding_dimensions: int = 384
     export_dir: Path = ROOT_DIR / "data" / "exports"
@@ -36,6 +37,7 @@ def get_settings() -> Settings:
         postgres_dsn=os.environ.get("POSTGRES_DSN", Settings.postgres_dsn),
         postgres_schema=os.environ.get("POSTGRES_SCHEMA", Settings.postgres_schema),
         ollama_base_url=os.environ.get("OLLAMA_BASE_URL", Settings.ollama_base_url),
+        gemini_api_key=os.environ.get("GEMINI_API_KEY"),
         default_embedding_model=os.environ.get(
             "DEFAULT_EMBEDDING_MODEL",
             Settings.default_embedding_model,

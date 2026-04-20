@@ -32,6 +32,13 @@ app/
 └── services/     # Business logic (LLM Orchestrator, RAG Pipeline)
 ```
 
+## 📖 Documentation & Extension
+
+For deep dives into the system design and guides on how to connect your own APIs:
+
+- **[Architecture Guide](ARCHITECTURE.md)**: Logic flow, DDD structure, and RAG mechanics.
+- **[Integration Guide](INTEGRATION_GUIDE.md)**: Step-by-Step guide for **Gemini API** and **Supabase** (pgvector).
+
 ## 🚀 Como Rodar
 
 1. Garanta que o Ollama esteja ativo em `http://127.0.0.1:11434`
