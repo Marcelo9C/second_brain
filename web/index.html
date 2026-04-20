@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pristine Laboratory | LLM Experiments</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <p class="eyebrow">The Laboratory</p>
+          <h1>Pristine Performance.</h1>
+          <div class="nav-container">
+            <div class="nav-pills">
+              <a href="/index.html" class="nav-pill active">Single Chat</a>
+              <a href="/sxs.html" class="nav-pill">Evaluation</a>
+            </div>
+          </div>
+          <p class="subtle">
+            Advanced LLM experimentation environment.
+          </p>
+        </div>
+
+        <div class="status-strip">
+          <div id="health-badge" class="badge">Verificando Engine...</div>
+          <div id="model-count" class="subtle"></div>
+        </div>
+
+        <section class="ollama-panel">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Ollama</p>
+              <h2 id="ollama-status-title">Aguardando...</h2>
+            </div>
+          </div>
+          <div id="ollama-endpoint" class="subtle">URL: n/d</div>
+          <div id="ollama-summary" class="subtle">Modelos: n/d</div>
+          <div id="ollama-model-list" class="history-list"></div>
+        </section>
+
+        <form id="chat-form" class="form-stack" novalidate>
+          <div class="field-grid">
+            <label>
+              <span>Modelo</span>
+              <select id="model-select" required></select>
+            </label>
+
+            <label>
+              <span>Rótulo do estudo</span>
+              <input
+                id="study-label"
+                type="text"
+                placeholder="ex.: seed fixa vs. seed livre"
+              />
+            </label>
+          </div>
+
+          <label>
+            <span>System prompt</span>
+            <textarea
+              id="system-prompt"
+              rows="4"
+              placeholder="Defina comportamento, persona, regras ou heurísticas."
+            ></textarea>
+          </label>
+
+          <label>
+            <span>Prompt</span>
+            <textarea
+              id="user-prompt"
+              rows="7"
+              placeholder="Escreva aqui o experimento que você quer rodar."
+              required
+            ></textarea>
+          </label>
+
+          <div class="field-grid compact">
+            <label>
+              <span>Temperature</span>
+              <input id="temperature" type="number" min="0" max="2" step="0.1" value="0" />
+            </label>
+            <label>
+              <span>Top P</span>
+              <input id="top-p" type="number" min="0" max="1" step="0.05" value="0.9" />
+            </label>
+            <label>
+              <span>Top K</span>
+              <input id="top-k" type="number" min="1" step="1" value="40" />
+            </label>
+            <label>
+              <span>Repeat penalty</span>
+              <input
+                id="repeat-penalty"
+                type="number"
+                min="0"
+                step="0.1"
+                value="1.1"
+              />
+            </label>
+            <label>
+              <span>Seed</span>
+              <input id="seed" type="number" step="1" value="7" />
+            </label>
+            <label>
+              <span>Max tokens</span>
+              <input id="num-predict" type="number" min="1" step="1" value="512" />
+            </label>
+            <label>
+              <span>Chunk size</span>
+              <input id="chunk-size" type="number" min="1" step="1" value="512" />
+            </label>
+            <label>
+              <span>Chunk overlap</span>
+              <input id="chunk-overlap" type="number" min="0" step="1" value="50" />
+            </label>
+            <label>
+              <span>Corpus version</span>
+              <input id="corpus-version" type="text" value="v1" />
+            </label>
+          </div>
+
+          <div class="inline-row">
+            <label class="check">
+              <input id="include-history" type="checkbox" checked />
+              <span>Manter contexto da sessão</span>
+            </label>
+
+            <label class="keep-alive">
+              <span>Keep alive</span>
+              <input id="keep-alive" type="text" value="10m" />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="submit-chat" type="submit">Executar prompt</button>
+            <button id="rerun-chat" type="button" class="ghost">Repetir</button>
+            <button id="clear-session" type="button" class="ghost">Nova sessão</button>
+          </div>
+        </form>
+      </aside>
+
+      <main class="workspace">
+        <section class="conversation-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Experiment Workspace</p>
+              <h2>Session Trace</h2>
+            </div>
+            <div id="metrics-bar" class="metric-row">
+              <span class="metric">Nenhuma execução ainda.</span>
+            </div>
+          </div>
+
+          <div id="conversation" class="conversation"></div>
+
+          <div class="detail-grid">
+            <section class="detail-block">
+              <div class="panel-header tight">
+                <div>
+                  <p class="eyebrow">Raw Feedback</p>
+                  <h3>Assistant Output</h3>
+                </div>
+              </div>
+              <pre id="assistant-output" class="code-block">Ainda não há resposta.</pre>
+            </section>
+
+            <section class="detail-block">
+              <div class="panel-header tight">
+                <div>
+                  <p class="eyebrow">Protocol</p>
+                  <h3>Request Metadata</h3>
+                </div>
+              </div>
+              <pre id="experiment-json" class="code-block">Nenhum experimento selecionado.</pre>
+            </section>
+          </div>
+        </section>
+
+        <section class="sidepanel">
+          <section class="retrieval-panel">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">RAG Analytics</p>
+                <h2>Vector Retrieval</h2>
+              </div>
+            </div>
+
+            <form id="retrieval-form" class="form-stack" novalidate>
+              <label>
+                <span>Embedding Model</span>
+                <select id="embedding-model-select"></select>
+              </label>
+
+              <label>
+                <span>Query</span>
+                <textarea
+                  id="retrieval-query"
+                  rows="4"
+                  placeholder="Query de busca semântica."
+                  required
+                ></textarea>
+              </label>
+
+              <div class="field-grid compact">
+                <label>
+                  <span>Corpus version</span>
+                  <input id="retrieval-corpus-version" type="text" value="v1" required />
+                </label>
+                <label>
+                  <span>Source (filter)</span>
+                  <input id="retrieval-source" type="text" placeholder="ex: manual.pdf" />
+                </label>
+                <label>
+                  <span>Section (filter)</span>
+                  <input id="retrieval-section" type="text" placeholder="ex: Introdução" />
+                </label>
+              </div>
+
+              <button id="run-retrieval" type="submit">Executar Busca</button>
+            </form>
+
+            <div id="retrieval-summary" class="embedding-summary">
+              Nenhuma busca realizada.
+            </div>
+            <pre id="retrieval-output" class="code-block small">
+Sem resultados por enquanto.
+            </pre>
+          </section>
+
+          <section class="history-panel">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">Histórico</p>
+                <h2>Últimos experimentos</h2>
+              </div>
+              <button id="download-history" class="ghost compact-button" type="button">
+                Exportar JSON
+              </button>
+            </div>
+
+            <div id="history-list" class="history-list"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <template id="message-template">
+      <article class="message">
+        <div class="message-role"></div>
+        <div class="message-content"></div>
+      </article>
+    </template>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

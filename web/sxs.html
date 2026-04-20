@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SxS Evaluation | Pristine Laboratory</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/diff@5.2.0/dist/diff.min.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <p class="eyebrow">RLHF Laboratory</p>
+          <h1>Side-by-Side.</h1>
+          <div class="nav-container">
+            <div class="nav-pills">
+              <a href="/index.html" class="nav-pill">Single Chat</a>
+              <a href="/sxs.html" class="nav-pill active">Evaluation</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="status-strip">
+          <div id="health-badge" class="badge">Verificando...</div>
+          <div id="model-count" class="subtle"></div>
+        </div>
+
+        <div class="lab-controls">
+          <label class="switch-field">
+            <input type="checkbox" id="toggle-blind" checked />
+            <span>Blind Mode</span>
+          </label>
+          <label class="switch-field">
+            <input type="checkbox" id="toggle-dual-prompt" />
+            <span>Dual Prompts</span>
+          </label>
+        </div>
+
+        <form id="sxs-form" class="form-stack" novalidate>
+          <div class="field-grid">
+            <label>
+              <span>Modelo A</span>
+              <select id="model-select-a" required></select>
+            </label>
+            <label>
+              <span>Modelo B</span>
+              <select id="model-select-b" required></select>
+            </label>
+          </div>
+
+          <label>
+            <span>Rótulo do Estudo</span>
+            <input id="study-label" type="text" placeholder="ex.: v1.2 vs v1.3 grounding" />
+          </label>
+
+          <div id="unified-prompt-group">
+            <label>
+              <span>System Prompt (Global)</span>
+              <textarea id="system-prompt" rows="3" placeholder="Instruções compartilhadas..."></textarea>
+            </label>
+            <label>
+              <span>Prompt (Global)</span>
+              <textarea id="user-prompt" rows="5" placeholder="Pergunta ou tarefa para ambos os modelos..." required></textarea>
+            </label>
+          </div>
+
+          <div id="dual-prompt-group" style="display: none;">
+            <div class="field-grid">
+              <div class="prompt-col">
+                <p class="eyebrow">Lado A</p>
+                <label>
+                  <span>System Prompt A</span>
+                  <textarea id="system-prompt-a" rows="2" placeholder="Instruções A..."></textarea>
+                </label>
+                <label>
+                  <span>User Prompt A</span>
+                  <textarea id="user-prompt-a" rows="4" placeholder="Pergunta A..."></textarea>
+                </label>
+              </div>
+              <div class="prompt-col">
+                <p class="eyebrow">Lado B</p>
+                <label>
+                  <span>System Prompt B</span>
+                  <textarea id="system-prompt-b" rows="2" placeholder="Instruções B..."></textarea>
+                </label>
+                <label>
+                  <span>User Prompt B</span>
+                  <textarea id="user-prompt-b" rows="4" placeholder="Pergunta B..."></textarea>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="field-grid compact">
+            <label><span>Temp</span><input id="temperature" type="number" step="0.1" value="0" /></label>
+            <label><span>Seed</span><input id="seed" type="number" value="7" /></label>
+          </div>
+
+          <button type="submit" id="run-btn" class="btn-primary">Executar Comparação</button>
+        </form>
+
+        <section class="ollama-panel">
+          <div class="panel-header tight">
+            <p class="eyebrow">Engine Status</p>
+            <h2 id="ollama-status-title">Aguardando...</h2>
+          </div>
+          <div id="ollama-endpoint" class="subtle">URL: n/d</div>
+          <div id="ollama-summary" class="subtle">Modelos: n/d</div>
+          <div id="ollama-model-list" class="history-list"></div>
+        </section>
+      </aside>
+
+      <main class="workspace sxs-mode">
+        <div class="sxs-columns">
+          <div class="output-card" id="card-a">
+            <h3 id="label-a">Modelo A</h3>
+            <div id="output-render-a" class="output-content">Aguardando inferência...</div>
+            <textarea id="output-a" class="output-raw" placeholder="Aguardando inferência..."></textarea>
+            <div id="telemetry-a" class="telemetry-bar">
+              <span class="telemetry-item">Latência: <b id="lat-a">-</b></span>
+              <span class="telemetry-item">Tokens: <b id="tok-a">-</b></span>
+            </div>
+            <div id="cot-container-a"></div>
+          </div>
+
+          <div class="output-card" id="card-b">
+            <h3 id="label-b">Modelo B</h3>
+            <div id="output-render-b" class="output-content">Aguardando inferência...</div>
+            <textarea id="output-b" class="output-raw" placeholder="Aguardando inferência..."></textarea>
+            <div id="telemetry-b" class="telemetry-bar">
+              <span class="telemetry-item">Latência: <b id="lat-b">-</b></span>
+              <span class="telemetry-item">Tokens: <b id="tok-b">-</b></span>
+            </div>
+            <div id="cot-container-b"></div>
+          </div>
+        </div>
+
+        <div id="diff-panel" class="diff-card" style="display: none;">
+          <div class="panel-header">
+            <p class="eyebrow">Visual Analysis</p>
+            <h2>Word-level Semantic Diff</h2>
+          </div>
+          <div id="diff-output" class="diff-content"></div>
+        </div>
+
+        <div id="annotation-panel" class="annotation-card" style="display: none;">
+          <div class="panel-header">
+            <p class="eyebrow">Human Feedback Loop</p>
+            <h2>Avaliação Qualitativa</h2>
+          </div>
+
+          <div class="score-grid">
+            <div class="score-control">
+              <div class="score-header"><span>Fundamentação (Grounding)</span><span class="value-tag" id="val-grounding">3</span></div>
+              <input type="range" id="score-grounding" min="1" max="5" value="3" />
+            </div>
+            <div class="score-control">
+              <div class="score-header"><span>Utilidade (Helpfulness)</span><span class="value-tag" id="val-helpfulness">3</span></div>
+              <input type="range" id="score-helpfulness" min="1" max="5" value="3" />
+            </div>
+            <div class="score-control">
+              <div class="score-header"><span>Factualidade (Factuality)</span><span class="value-tag" id="val-factuality">3</span></div>
+              <input type="range" id="score-factuality" min="1" max="5" value="3" />
+            </div>
+          </div>
+
+          <div class="flags-grid">
+            <label class="flag-chip"><input type="checkbox" value="hallucination" /> Alucinação</label>
+            <label class="flag-chip"><input type="checkbox" value="formatting" /> Formatação</label>
+            <label class="flag-chip"><input type="checkbox" value="tone" /> Tom/Persona</label>
+            <label class="flag-chip"><input type="checkbox" value="logic" /> Falha Lógica</label>
+          </div>
+
+          <textarea id="rationale" class="rationale-textarea" placeholder="Explique o motivo da sua escolha (obrigatório para treinamento)..."></textarea>
+
+          <div class="annotation-actions">
+            <button id="choose-a" class="btn-choose primary">Escolher Modelo A</button>
+            <button id="choose-b" class="btn-choose">Escolher Modelo B</button>
+          </div>
+        </div>
+      </main>
+
+      <aside class="sidebar-right">
+        <div class="panel-header">
+          <p class="eyebrow">Data Export</p>
+          <h2>Avaliações Recentes</h2>
+        </div>
+        <div id="eval-history" class="history-list">
+          <p class="subtle">As últimas 10 avaliações aparecerão aqui.</p>
+        </div>
+      </aside>
+    </div>
+
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <script defer src="/sxs.js"></script>
+  </body>
+</html>
