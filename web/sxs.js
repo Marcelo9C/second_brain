@@ -13,11 +13,47 @@ const API_BASE =
     ? window.location.origin
     : "http://127.0.0.1:8765";
 
+const elements = {
+  healthBadge: document.querySelector("#health-badge"),
+  modelCount: document.querySelector("#model-count"),
+  ollamaStatusTitle: document.querySelector("#ollama-status-title"),
+  ollamaEndpoint: document.querySelector("#ollama-endpoint"),
+  ollamaSummary: document.querySelector("#ollama-summary"),
+  ollamaModelList: document.querySelector("#ollama-model-list"),
+  sxsForm: document.querySelector("#sxs-form"),
+  runBtn: document.querySelector("#run-btn"),
+  modelSelectA: document.querySelector("#model-select-a"),
+  modelSelectB: document.querySelector("#model-select-b"),
+  studyLabel: document.querySelector("#study-label"),
+  systemPrompt: document.querySelector("#system-prompt"),
+  userPrompt: document.querySelector("#user-prompt"),
+  temperature: document.querySelector("#temperature"),
   seed: document.querySelector("#seed"),
+  outputA: document.querySelector("#output-a"),
+  outputB: document.querySelector("#output-b"),
+  outputRenderA: document.querySelector("#output-render-a"),
+  outputRenderB: document.querySelector("#output-render-b"),
+  latA: document.querySelector("#lat-a"),
+  latB: document.querySelector("#lat-b"),
+  tokA: document.querySelector("#tok-a"),
+  tokB: document.querySelector("#tok-b"),
+  annotationPanel: document.querySelector("#annotation-panel"),
+  rationale: document.querySelector("#rationale"),
+  chooseA: document.querySelector("#choose-a"),
+  chooseB: document.querySelector("#choose-b"),
+  evalHistory: document.querySelector("#eval-history"),
+  scoreGrounding: document.querySelector("#score-grounding"),
+  valGrounding: document.querySelector("#val-grounding"),
+  scoreHelpfulness: document.querySelector("#score-helpfulness"),
+  valHelpfulness: document.querySelector("#val-helpfulness"),
+  scoreFactuality: document.querySelector("#score-factuality"),
+  valFactuality: document.querySelector("#val-factuality"),
   toggleBlind: document.querySelector("#toggle-blind"),
   toggleDualPrompt: document.querySelector("#toggle-dual-prompt"),
   unifiedPromptGroup: document.querySelector("#unified-prompt-group"),
   dualPromptGroup: document.querySelector("#dual-prompt-group"),
+  workspace: document.querySelector(".workspace"),
+  sidebarRight: document.querySelector(".sidebar-right"),
   labelA: document.querySelector("#label-a"),
   labelB: document.querySelector("#label-b"),
   systemPromptA: document.querySelector("#system-prompt-a"),
@@ -427,15 +463,21 @@ function renderEvaluationHistory() {
 elements.sxsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const systemPrompt = elements.systemPrompt.value.trim();
-  const prompt = elements.userPrompt.value.trim();
   const seed = parseInt(elements.seed.value, 10);
   const temperature = parseFloat(elements.temperature.value);
   const modelA = elements.modelSelectA.value;
   const modelB = elements.modelSelectB.value;
+  const isDual = elements.toggleDualPrompt.checked;
+  const prompt = elements.userPrompt.value.trim();
+  const promptA = elements.userPromptA.value.trim();
+  const promptB = elements.userPromptB.value.trim();
 
-  if (!prompt) {
-    showNotice("Escreva um prompt antes de executar.");
+  if ((!isDual && !prompt) || (isDual && (!promptA || !promptB))) {
+    showNotice(
+      isDual
+        ? "Preencha os prompts A e B antes de executar."
+        : "Escreva um prompt antes de executar.",
+    );
     return;
   }
 
@@ -462,8 +504,6 @@ elements.sxsForm.addEventListener("submit", async (event) => {
   elements.workspace.classList.add("sxs-mode");
   elements.diffPanel.style.display = "none";
   setBusy(true);
-
-  const isDual = elements.toggleDualPrompt.checked;
 
   const requestFor = (modelName, key) => {
     let sys = elements.systemPrompt.value.trim();
