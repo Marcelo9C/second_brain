@@ -40,15 +40,17 @@ def get_annotation_repository() -> AnnotationSxSRepository:
 @lru_cache
 def get_llm_service() -> LLMOrchestratorService:
     settings: Settings = get_settings()
-    return LLMOrchestratorService(settings.ollama_base_url)
+    return LLMOrchestratorService(settings.ollama_base_url, settings.models_dir)
 
 
 @lru_cache
 def get_rag_service() -> RAGPipelineService:
+    settings = get_settings()
     return RAGPipelineService(
         document_repository=get_document_chunk_repository(),
         retrieval_trace_repository=get_retrieval_trace_repository(),
         llm_service=get_llm_service(),
+        models_dir=settings.models_dir,
     )
 
 

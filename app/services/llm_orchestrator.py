@@ -7,8 +7,10 @@ from urllib.request import Request, urlopen
 
 
 class LLMOrchestratorService:
-    def __init__(self, ollama_base_url: str) -> None:
+    def __init__(self, ollama_base_url: str, models_dir: Path | None = None) -> None:
         self.ollama_base_url = ollama_base_url.rstrip("/")
+        self.models_dir = models_dir
+        self._local_models_cache: dict[str, Any] = {}
 
     def _build_request(self, path: str, payload: dict[str, Any]) -> Request:
         return Request(
@@ -61,6 +63,10 @@ class LLMOrchestratorService:
             return []
 
     def generate_embeddings(self, model: str, prompt: str) -> list[float]:
+        if model.startswith("local:"):
+            local_name = model.replace("local:", "")
+            return self._generate_local_embedding(local_name, prompt)
+
         payload = {
             "model": model,
             "prompt": prompt,
@@ -74,6 +80,27 @@ class LLMOrchestratorService:
         except Exception:
             # Fallback for mock if ollama fails or embedding model is not present
             return [0.0] * 384
+
+    def _generate_local_embedding(self, model_name: str, prompt: str) -> list[float]:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError:
+            return [0.0] * 384
+
+        if model_name not in self._local_models_cache:
+            if not self.models_dir:
+                return [0.0] * 384
+            
+            model_path = self.models_dir / model_name
+            if not model_path.exists():
+                return [0.0] * 384
+            
+            # Load model and cache it
+            self._local_models_cache[model_name] = SentenceTransformer(str(model_path))
+
+        model = self._local_models_cache[model_name]
+        embedding = model.encode(prompt)
+        return embedding.tolist()
 
     def health(self) -> dict[str, Any]:
         """

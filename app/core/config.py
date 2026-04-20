@@ -24,6 +24,7 @@ class Settings:
     default_embedding_model: str = "all-MiniLM-L6-v2"
     default_embedding_dimensions: int = 384
     export_dir: Path = ROOT_DIR / "data" / "exports"
+    models_dir: Path = ROOT_DIR / "models"
 
 
 @lru_cache

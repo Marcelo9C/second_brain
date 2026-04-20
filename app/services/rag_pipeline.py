@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
 
 from app.repositories.documents import DocumentChunkRepository
 from app.repositories.retrieval_traces import RetrievalTraceRepository
+from app.services.llm_orchestrator import LLMOrchestratorService
 
 
 class RAGPipelineService:
@@ -13,10 +15,12 @@ class RAGPipelineService:
         document_repository: DocumentChunkRepository,
         retrieval_trace_repository: RetrievalTraceRepository,
         llm_service: LLMOrchestratorService,
+        models_dir: Path | None = None,
     ) -> None:
         self.document_repository = document_repository
         self.retrieval_trace_repository = retrieval_trace_repository
         self.llm_service = llm_service
+        self.models_dir = models_dir
 
     def ingest_chunks(self, chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return self.document_repository.upsert_chunks(chunks)
@@ -105,11 +109,22 @@ class RAGPipelineService:
         return self.retrieval_trace_repository.bulk_create(rows)
 
     def list_embedding_models(self) -> list[dict[str, Any]]:
-        # Hardcoded for the first research phase as per the schema comments
-        return [
+        models = [
             {
                 "name": "all-MiniLM-L6-v2",
-                "label": "MiniLM L6 (384d)",
-                "source": "sentence-transformers",
+                "label": "MiniLM L6 (Ollama/Default)",
+                "source": "ollama",
             }
         ]
+        
+        if self.models_dir and self.models_dir.exists():
+            for entry in self.models_dir.iterdir():
+                if entry.is_dir():
+                    # We assume any dir in models/ is a HuggingFace-style model directory
+                    models.append({
+                        "name": f"local:{entry.name}",
+                        "label": f"{entry.name} (Local/CPU)",
+                        "source": "local",
+                    })
+        
+        return models
