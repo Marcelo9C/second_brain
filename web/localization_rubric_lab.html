@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Localization Rubric Lab | Second Brain</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <p class="eyebrow">Localization Trial</p>
+          <h1>Rubric Lab.</h1>
+          <div class="nav-container">
+            <div class="nav-pills">
+              <a href="/index.html" class="nav-pill">Single Chat</a>
+              <a href="/sxs.html" class="nav-pill">Evaluation</a>
+              <a href="/localization_rubric_lab.html" class="nav-pill active">Localization</a>
+            </div>
+          </div>
+          <p class="subtle">
+            Crie, revise, aprove e exporte rubricas pt-BR para MLOps.
+          </p>
+        </div>
+
+        <section class="lab-card">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Template</p>
+              <h2>Base da rubrica</h2>
+            </div>
+          </div>
+
+          <form id="template-form" class="form-stack" novalidate>
+            <div class="field-grid">
+              <label>
+                <span>Locale</span>
+                <select id="locale-select">
+                  <option value="pt-BR">pt-BR</option>
+                </select>
+              </label>
+              <label>
+                <span>Categoria</span>
+                <select id="category-select">
+                  <option value="Writing">Writing</option>
+                  <option value="Chitchat">Chitchat</option>
+                  <option value="Knowledge">Knowledge</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="field-grid">
+              <label>
+                <span>Status</span>
+                <select id="status-select">
+                  <option value="draft">draft</option>
+                  <option value="reviewed">reviewed</option>
+                  <option value="approved">approved</option>
+                  <option value="exported">exported</option>
+                </select>
+              </label>
+              <label>
+                <span>Tags</span>
+                <input id="tags-input" type="text" placeholder="ex.: trial-01, pt-br" />
+              </label>
+            </div>
+
+            <div class="field-grid">
+              <label>
+                <span>Provider IA</span>
+                <select id="rubric-provider-select">
+                  <option value="">Carregando providers...</option>
+                </select>
+              </label>
+              <label>
+                <span>Motor IA</span>
+                <select id="rubric-model-select">
+                  <option value="">Carregando modelos...</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="actions">
+              <button id="load-template" type="button">Carregar template</button>
+              <button id="new-case" class="ghost" type="button">Novo draft</button>
+            </div>
+          </form>
+
+          <div id="template-summary" class="embedding-summary">
+            Nenhum template carregado.
+          </div>
+        </section>
+
+        <section class="history-panel">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Histórico</p>
+              <h2>Rubrics recentes</h2>
+            </div>
+          </div>
+          <div id="rubric-history" class="history-list"></div>
+        </section>
+      </aside>
+
+      <main class="workspace localization-workspace">
+        <section class="conversation-panel localization-editor-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Caso</p>
+              <h2>Localization Rubric Case</h2>
+            </div>
+            <div id="case-state" class="metric-row">
+              <span class="metric">Novo draft</span>
+            </div>
+          </div>
+
+          <form id="case-form" class="form-stack" novalidate>
+            <label>
+              <span>Category</span>
+              <input id="case-category" type="text" readonly />
+            </label>
+
+            <label>
+              <span>Chat history</span>
+              <textarea id="chat-history" rows="5" placeholder='Cole JSON ou texto do histórico.'></textarea>
+            </label>
+
+            <label>
+              <span>Prompt</span>
+              <textarea id="prompt" rows="4" placeholder="Prompt original do caso."></textarea>
+            </label>
+
+            <label>
+              <span>Response_raw</span>
+              <textarea id="response-raw" rows="5" placeholder="Resposta bruta do modelo."></textarea>
+            </label>
+
+            <label>
+              <span>Golden Response</span>
+              <textarea id="golden-response" rows="5" placeholder="Resposta esperada/revisada."></textarea>
+            </label>
+
+            <label>
+              <span>Observações do avaliador</span>
+              <textarea id="evaluator-notes" rows="3" placeholder="Notas de revisão, decisões e pendências."></textarea>
+            </label>
+          </form>
+        </section>
+
+        <section class="sidepanel localization-sidepanel">
+          <section class="retrieval-panel">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">Rubrics JSON</p>
+                <h2>Editor</h2>
+              </div>
+              <div id="json-status" class="badge warning">Aguardando</div>
+            </div>
+
+            <textarea id="rubrics-editor" class="json-editor" spellcheck="false"></textarea>
+
+            <div id="validation-output" class="embedding-summary">
+              Carregue um template para começar.
+            </div>
+
+            <div class="actions">
+              <button id="generate-rubrics" type="button">Gerar rubrics com IA</button>
+              <button id="save-case" type="button">Salvar draft</button>
+              <button id="mark-reviewed" class="ghost" type="button">Marcar reviewed</button>
+              <button id="mark-approved" class="ghost" type="button">Aprovar</button>
+            </div>
+            <div id="ai-warning" class="embedding-summary">
+              Rubrics geradas por IA devem ser revisadas antes da aprovação.
+            </div>
+          </section>
+
+          <section class="history-panel">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">Auditoria</p>
+                <h2>Diagnóstico da geração</h2>
+              </div>
+            </div>
+            <div id="generation-diagnostics" class="diagnostics-grid">
+              <div class="empty-state">Nenhuma geração realizada.</div>
+            </div>
+          </section>
+
+          <section class="history-panel">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">Auditoria</p>
+                <h2>Resposta bruta do modelo</h2>
+              </div>
+            </div>
+            <pre id="raw-model-response" class="code-block small raw-model-response">Nenhuma resposta bruta registrada.</pre>
+          </section>
+
+          <section class="history-panel">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">MLOps</p>
+                <h2>Export</h2>
+              </div>
+            </div>
+            <div class="actions">
+              <button id="export-jsonl" type="button">Exportar JSONL</button>
+              <button id="export-csv" class="ghost" type="button">Exportar CSV</button>
+            </div>
+            <pre id="export-output" class="code-block small">Nenhuma exportação realizada.</pre>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="/localization_rubric_lab.js" defer></script>
+  </body>
+</html>

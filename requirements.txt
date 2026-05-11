@@ -3,3 +3,4 @@ uvicorn
 psycopg[binary]
 pgvector
 sentence-transformers
+python-dotenv

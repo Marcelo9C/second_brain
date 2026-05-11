@@ -1,0 +1,44 @@
+[
+  {
+    "Rubric_dimensions": "Natural Language Fluency",
+    "Rubric_title": "[Grammar and Spelling Quality]",
+    "Rubrics_description": "The response is free from grammatical, spelling, punctuation, and sentence construction errors.",
+    "Rubrics_weight": 9,
+    "is_response_specific": false
+  },
+  {
+    "Rubric_dimensions": "Natural Language Fluency",
+    "Rubric_title": "[Coherent Structure and Flow]",
+    "Rubrics_description": "The response maintains a coherent, organized, and easy-to-follow writing structure.",
+    "Rubrics_weight": 8,
+    "is_response_specific": false
+  },
+  {
+    "Rubric_dimensions": "Natural Language Fluency",
+    "Rubric_title": "[Instruction Following]",
+    "Rubrics_description": "The response correctly follows the user's requested format, tone, style, or writing constraints.",
+    "Rubrics_weight": 10,
+    "is_response_specific": false
+  },
+  {
+    "Rubric_dimensions": "Cultural Understanding and Application",
+    "Rubric_title": "[Appropriate Tone and Register]",
+    "Rubrics_description": "The response uses an appropriate tone, level of formality, and writing style for the target audience and context.",
+    "Rubrics_weight": 7,
+    "is_response_specific": false
+  },
+  {
+    "Rubric_dimensions": "Natural Language Fluency",
+    "Rubric_title": "[Awkward or Unnatural Writing]",
+    "Rubrics_description": "The response contains awkward phrasing, unnatural wording, literal translations, or poor sentence flow.",
+    "Rubrics_weight": -7,
+    "is_response_specific": false
+  },
+  {
+    "Rubric_dimensions": "Natural Language Fluency",
+    "Rubric_title": "[Formatting or Structural Errors]",
+    "Rubrics_description": "The response contains formatting issues, missing structure, broken organization, or inconsistent writing presentation.",
+    "Rubrics_weight": -5,
+    "is_response_specific": false
+  }
+]

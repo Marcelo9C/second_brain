@@ -42,6 +42,7 @@ data/
 *.db
 scratch/
 !scratch/migrate_sxs.py
+.tmp/
 blobs/
 manifests/
 models/

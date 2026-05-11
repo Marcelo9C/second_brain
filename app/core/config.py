@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
 # Load .env file from root
-load_dotenv(ROOT_DIR / ".env")
+load_dotenv(ROOT_DIR / ".env", override=True)
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,15 @@ class Settings:
     postgres_dsn: str = "postgresql://postgres:postgres@127.0.0.1:5433/second_brain"
     postgres_schema: str = "research"
     ollama_base_url: str = "http://127.0.0.1:11434"
+    localization_rubric_model: str = "llama3.2:3b"
     gemini_api_key: str | None = None
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_default_model: str = "gemma-4-26b-a4b-it"
+    gemini_models: tuple[str, ...] = (
+        "gemma-4-26b-a4b-it",
+        "gemini-flash-latest",
+    )
+    openai_api_key: str | None = None
     default_embedding_model: str = "all-MiniLM-L6-v2"
     default_embedding_dimensions: int = 384
     export_dir: Path = ROOT_DIR / "data" / "exports"
@@ -30,6 +38,15 @@ class Settings:
 
 @lru_cache
 def get_settings() -> Settings:
+    gemini_models = tuple(
+        model.strip()
+        for model in os.environ.get(
+            "GEMINI_MODELS",
+            ",".join(Settings.gemini_models),
+        ).split(",")
+        if model.strip()
+    )
+
     return Settings(
         app_name=os.environ.get("APP_NAME", Settings.app_name),
         app_host=os.environ.get("APP_HOST", Settings.app_host),
@@ -37,7 +54,18 @@ def get_settings() -> Settings:
         postgres_dsn=os.environ.get("POSTGRES_DSN", Settings.postgres_dsn),
         postgres_schema=os.environ.get("POSTGRES_SCHEMA", Settings.postgres_schema),
         ollama_base_url=os.environ.get("OLLAMA_BASE_URL", Settings.ollama_base_url),
+        localization_rubric_model=os.environ.get(
+            "LOCALIZATION_RUBRIC_MODEL",
+            Settings.localization_rubric_model,
+        ),
         gemini_api_key=os.environ.get("GEMINI_API_KEY"),
+        gemini_base_url=os.environ.get("GEMINI_BASE_URL", Settings.gemini_base_url),
+        gemini_default_model=os.environ.get(
+            "GEMINI_DEFAULT_MODEL",
+            Settings.gemini_default_model,
+        ),
+        gemini_models=gemini_models or Settings.gemini_models,
+        openai_api_key=os.environ.get("OPENAI_API_KEY"),
         default_embedding_model=os.environ.get(
             "DEFAULT_EMBEDDING_MODEL",
             Settings.default_embedding_model,

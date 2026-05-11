@@ -1,0 +1,44 @@
+[
+  {
+    "Rubric_dimensions": "Facts and Local Knowledge",
+    "Rubric_title": "[Factual Accuracy]",
+    "Rubrics_description": "The response provides factually accurate information without contradictions, hallucinations, or fabricated claims.",
+    "Rubrics_weight": 10,
+    "is_response_specific": false
+  },
+  {
+    "Rubric_dimensions": "Facts and Local Knowledge",
+    "Rubric_title": "[Correct Interpretation of User Intent]",
+    "Rubrics_description": "The response correctly interprets the user's actual intent, including typo-heavy, ambiguous, or informal phrasing.",
+    "Rubrics_weight": 10,
+    "is_response_specific": false
+  },
+  {
+    "Rubric_dimensions": "Facts and Local Knowledge",
+    "Rubric_title": "[Relevant Explanation Depth]",
+    "Rubrics_description": "The response provides sufficient explanatory detail, examples, causes, or contextual information relevant to the user's question.",
+    "Rubrics_weight": 8,
+    "is_response_specific": false
+  },
+  {
+    "Rubric_dimensions": "Cultural Understanding and Application",
+    "Rubric_title": "[Actionable Guidance]",
+    "Rubrics_description": "The response provides practical, actionable next steps or guidance relevant to the user's request.",
+    "Rubrics_weight": 7,
+    "is_response_specific": false
+  },
+  {
+    "Rubric_dimensions": "Facts and Local Knowledge",
+    "Rubric_title": "[Hallucinated or Fabricated Information]",
+    "Rubrics_description": "The response contains fabricated facts, fake entities, unsupported claims, or invented information presented as factual.",
+    "Rubrics_weight": -10,
+    "is_response_specific": false
+  },
+  {
+    "Rubric_dimensions": "Facts and Local Knowledge",
+    "Rubric_title": "[Topic Misinterpretation]",
+    "Rubrics_description": "The response incorrectly shifts to an unrelated topic or fundamentally misunderstands the user's request.",
+    "Rubrics_weight": -10,
+    "is_response_specific": false
+  }
+]
