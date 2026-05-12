@@ -166,6 +166,10 @@ function renderGenerationDiagnostics(metadata = null) {
     "model_requested",
     "provider_used",
     "model_used",
+    "model_to_call",
+    "default_model_used",
+    "fallback_applied",
+    "model_allowed_by_backend",
     "exact_url_called",
     "response_status",
     "generation_duration_ms",
@@ -175,6 +179,9 @@ function renderGenerationDiagnostics(metadata = null) {
     "generation_timestamp",
     "validation_status",
     "validation_error",
+    "result_discarded",
+    "blocked_reason",
+    "raw_error"
   ];
 
   for (const field of fields) {
@@ -197,31 +204,14 @@ function renderRawModelResponse(raw = null) {
 }
 
 function hasGenerationMismatch(metadata) {
-  const requestedProvider = metadata?.provider_requested;
-  const requestedModel = metadata?.model_requested;
-  const usedProvider = metadata?.provider_used;
-  const usedModel = metadata?.model_used;
-
-  return Boolean(
-    (requestedProvider && requestedProvider !== usedProvider) ||
-      (requestedModel && requestedModel !== usedModel),
-  );
+  return metadata?.fallback_applied === true || metadata?.result_discarded === true;
 }
 
 function assertGenerationMatch(metadata) {
-  const requestedProvider = metadata?.provider_requested;
-  const requestedModel = metadata?.model_requested;
-  const usedProvider = metadata?.provider_used;
-  const usedModel = metadata?.model_used;
-
-  if (requestedProvider && requestedProvider !== usedProvider) {
+  if (metadata?.fallback_applied === true || metadata?.result_discarded === true) {
     throw new Error(
-      `Provider usado (${usedProvider}) difere do solicitado (${requestedProvider}).`,
+      metadata?.blocked_reason || "Geração bloqueada por fallback ou erro de validação de modelo/provider."
     );
-  }
-
-  if (requestedModel && requestedModel !== usedModel) {
-    throw new Error(`Modelo usado (${usedModel}) difere do solicitado (${requestedModel}).`);
   }
 }
 
@@ -530,7 +520,13 @@ async function generateRubrics() {
     state.lastRawModelResponse = result.raw_model_response || null;
     renderGenerationDiagnostics(state.lastGenerationMetadata);
     renderRawModelResponse(state.lastRawModelResponse);
-    assertGenerationMatch(state.lastGenerationMetadata);
+    try {
+      assertGenerationMatch(state.lastGenerationMetadata);
+    } catch (e) {
+      elements.aiWarning.textContent = e.message;
+      elements.validationOutput.textContent = e.message;
+      return;
+    }
 
     if (!result.success) {
       elements.aiWarning.textContent =

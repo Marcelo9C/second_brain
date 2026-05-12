@@ -46,6 +46,7 @@ class RubricGenerationService:
                 "metadata": {
                     "generation_executed": False,
                     "workflow_decision": workflow_decision.to_dict(),
+                    "fallback_applied": False,
                 },
                 "raw_model_response": None,
                 "error": workflow_decision.reason,
@@ -57,18 +58,91 @@ class RubricGenerationService:
         model_requested = self._clean_optional_text(payload.get("model"))
         provider = self._provider(provider_requested)
 
-        fallback_model = provider.default_model() if not model_requested else None
-        log_model = model_requested or fallback_model or "none"
-        if not model_requested and not fallback_model:
-            self._log_generation(provider_requested, "none", "error")
-            raise RubricGenerationError(f"No model available for provider '{provider_requested}'.")
+        default_model_used = False
+        if not model_requested:
+            model_to_call = provider.default_model()
+            if not model_to_call:
+                self._log_generation(provider_requested, "none", "error")
+                blocked_decision = self._generation_decision(
+                    "blocked",
+                    reason="default_model_not_configured",
+                    message=f"No requested model and no default model available for provider '{provider_requested}'.",
+                    base_decision=workflow_decision,
+                )
+                blocked_decision["model_call"] = False
+                return {
+                    "success": False,
+                    "rubrics": None,
+                    "metadata": {
+                        "provider_requested": provider_requested,
+                        "model_requested": model_requested,
+                        "model_to_call": None,
+                        "default_model_configured": False,
+                        "model_allowed_by_backend": False,
+                        "generation_executed": False,
+                        "fallback_applied": False,
+                        "blocked_reason": "default_model_not_configured",
+                        "workflow_decision": blocked_decision,
+                    },
+                    "raw_model_response": None,
+                    "error": blocked_decision["message"],
+                    "warning": blocked_decision["message"],
+                    "workflow_decision": blocked_decision,
+                }
+            default_model_used = True
+        else:
+            model_to_call = model_requested
+
+        allowed_models = [m.get("id", m.get("name")) for m in provider.list_models()]
+        model_allowed_by_backend = model_to_call in allowed_models if allowed_models else True
+        if not model_allowed_by_backend:
+            blocked_decision = self._generation_decision(
+                "blocked",
+                reason="model_not_allowed_by_backend",
+                message=f"Model not allowed: {model_to_call}. Generation blocked.",
+                base_decision=workflow_decision,
+            )
+            blocked_decision["model_call"] = False
+            return {
+                "success": False,
+                "rubrics": None,
+                "metadata": {
+                    "provider_requested": provider_requested,
+                    "model_requested": model_requested,
+                    "model_to_call": model_to_call,
+                    "default_model_used": default_model_used,
+                    "model_allowed_by_backend": False,
+                    "generation_executed": False,
+                    "fallback_applied": False,
+                    "blocked_reason": "model_not_allowed_by_backend",
+                    "workflow_decision": blocked_decision,
+                },
+                "raw_model_response": None,
+                "error": blocked_decision["message"],
+                "warning": blocked_decision["message"],
+                "workflow_decision": blocked_decision,
+            }
 
         prompt = self._build_prompt(payload)
         prompt_text = prompt.as_text() if isinstance(prompt, ProviderPrompt) else str(prompt)
+        
+        metadata = {
+            "provider_requested": provider_requested,
+            "model_requested": model_requested,
+            "model_to_call": model_to_call,
+            "default_model_used": default_model_used,
+            "model_allowed_by_backend": model_allowed_by_backend,
+            "fallback_applied": False,
+            "result_discarded": False,
+            "blocked_reason": None,
+            "template_used": self._template_name_for_category(payload.get("category")),
+            "generation_executed": True,
+        }
+
         try:
-            provider_result = provider.generate(prompt=prompt, model=model_requested)
+            provider_result = provider.generate(prompt=prompt, model=model_to_call)
         except ProviderError as error:
-            self._log_generation(provider_requested, log_model, "error")
+            self._log_generation(provider_requested, model_to_call, "error")
             failure_decision = self._generation_decision(
                 WorkflowDecisionStatus.GENERATION_FAILED.value,
                 reason="provider_error",
@@ -79,7 +153,7 @@ class RubricGenerationService:
                 "success": False,
                 "rubrics": None,
                 "metadata": {
-                    "generation_executed": True,
+                    **metadata,
                     "workflow_decision": failure_decision,
                     "raw_error": str(error),
                 },
@@ -91,31 +165,47 @@ class RubricGenerationService:
 
         mismatch = self._audit_mismatch(
             provider_requested=provider_requested,
-            model_requested=model_requested,
+            model_to_call=model_to_call,
             provider_used=provider_result.provider_used,
             model_used=provider_result.model_used,
         )
-        if mismatch:
-            self._log_generation(provider_result.provider_used, provider_result.model_used, "mismatch")
-            raise RubricGenerationError(mismatch)
-
-        metadata = {
-            "provider_requested": provider_requested,
-            "model_requested": model_requested,
+        
+        metadata.update({
             "provider_used": provider_result.provider_used,
             "model_used": provider_result.model_used,
-            "exact_url_called": provider_result.exact_url_called,
-            "response_status": provider_result.response_status,
+            "exact_url_called": getattr(provider_result, "exact_url_called", None),
+            "response_status": getattr(provider_result, "response_status", None),
             "generation_timestamp": datetime.now(timezone.utc).isoformat(),
-            "template_used": self._template_name_for_category(payload.get("category")),
-            "mismatch": False,
-            "generation_duration_ms": provider_result.duration_ms,
+            "generation_duration_ms": getattr(provider_result, "duration_ms", 0),
             "approx_prompt_tokens": self._approx_tokens(prompt_text),
             "approx_response_tokens": self._approx_tokens(provider_result.text),
             "response_char_count": len(provider_result.text),
-            "generation_executed": True,
-            "workflow_decision": workflow_decision.to_dict(),
-        }
+        })
+
+        if mismatch:
+            self._log_generation(provider_result.provider_used, provider_result.model_used, "mismatch")
+            metadata.update({
+                "fallback_applied": True,
+                "result_discarded": True,
+                "blocked_reason": mismatch["reason"],
+            })
+            blocked_decision = self._generation_decision(
+                "blocked",
+                reason=mismatch["reason"],
+                message=mismatch["message"],
+                base_decision=workflow_decision,
+            )
+            return {
+                "success": False,
+                "rubrics": None,
+                "metadata": {**metadata, "workflow_decision": blocked_decision},
+                "raw_model_response": None,
+                "error": mismatch["message"],
+                "warning": "Model fallback detected. Result discarded.",
+                "workflow_decision": blocked_decision,
+            }
+
+        metadata["workflow_decision"] = workflow_decision.to_dict()
 
         try:
             rubrics = self._extract_rubrics(provider_result.text)
@@ -194,20 +284,20 @@ class RubricGenerationService:
         self,
         *,
         provider_requested: str,
-        model_requested: str | None,
+        model_to_call: str,
         provider_used: str,
         model_used: str,
-    ) -> str | None:
+    ) -> dict[str, str] | None:
         if provider_requested != provider_used:
-            return (
-                f"Provider usado ({provider_used}) difere do solicitado "
-                f"({provider_requested}). Geracao bloqueada."
-            )
-        if model_requested and model_requested != model_used:
-            return (
-                f"Modelo usado ({model_used}) difere do solicitado "
-                f"({model_requested}). Geracao bloqueada."
-            )
+            return {
+                "reason": "provider_executed_different_provider",
+                "message": f"Provider usado ({provider_used}) difere do solicitado ({provider_requested}). Geracao bloqueada.",
+            }
+        if model_to_call != model_used:
+            return {
+                "reason": "provider_executed_different_model",
+                "message": f"Modelo usado ({model_used}) difere do autorizado ({model_to_call}). Geracao bloqueada.",
+            }
         return None
 
     def _build_prompt(self, payload: dict[str, Any]) -> ProviderPrompt:

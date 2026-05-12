@@ -42,8 +42,7 @@ class BaseProvider(ABC):
         raise NotImplementedError
 
     def default_model(self) -> str | None:
-        models = self.list_models()
-        return str(models[0]["name"]) if models else None
+        return None
 
     def summary(self) -> dict[str, Any]:
         return {
