@@ -59,14 +59,15 @@ class RubricCaseCreate(BaseModel):
     evaluator_notes: str | None = None
     template_name: str
     template_version: str = "v1"
-    rubrics: list[dict[str, Any]]
+    rubrics: list[dict[str, Any]] = Field(default_factory=list)
     status: RubricCaseStatus = "draft"
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_rubrics(self) -> "RubricCaseCreate":
-        validate_rubric_payload(self.rubrics)
+        if self.status != "draft":
+            validate_rubric_payload(self.rubrics)
         return self
 
 
@@ -85,11 +86,15 @@ class RubricCaseUpdate(BaseModel):
     tags: list[str] | None = None
     metadata: dict[str, Any] | None = None
 
-    @model_validator(mode="after")
-    def validate_rubrics(self) -> "RubricCaseUpdate":
-        if self.rubrics is not None:
-            validate_rubric_payload(self.rubrics)
-        return self
+
+class RubricValidationRequest(BaseModel):
+    locale: str = "pt-BR"
+    category: LocalizationCategory
+    prompt: str | None = None
+    response_raw: str | None = None
+    golden_response: str | None = None
+    rubrics: Any = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RubricCaseExportRequest(BaseModel):

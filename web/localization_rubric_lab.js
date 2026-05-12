@@ -6,6 +6,13 @@ const REQUIRED_RUBRIC_FIELDS = [
   "is_response_specific",
 ];
 
+const ACCEPTED_RUBRIC_DIMENSIONS = new Set([
+  "Cultural Understanding and Application",
+  "Local Facts and Awareness",
+  "Logic and Formatting",
+  "Natural Language Fluency",
+]);
+
 const state = {
   templates: [],
   currentTemplate: null,
@@ -15,6 +22,8 @@ const state = {
   selectedCaseId: null,
   lastGenerationMetadata: null,
   lastRawModelResponse: null,
+  humanQualityReviewed: false,
+  lastValidationReport: null,
 };
 
 const API_BASE =
@@ -42,6 +51,7 @@ const elements = {
   rubricsEditor: document.querySelector("#rubrics-editor"),
   jsonStatus: document.querySelector("#json-status"),
   validationOutput: document.querySelector("#validation-output"),
+  validationLayers: document.querySelector("#validation-layers"),
   generateRubrics: document.querySelector("#generate-rubrics"),
   aiWarning: document.querySelector("#ai-warning"),
   generationDiagnostics: document.querySelector("#generation-diagnostics"),
@@ -288,6 +298,7 @@ function fillCase(record) {
   elements.tagsInput.value = Array.isArray(record?.tags) ? record.tags.join(", ") : "";
   state.lastGenerationMetadata = record?.metadata?.rubric_generation || null;
   state.lastRawModelResponse = record?.metadata?.raw_model_response || null;
+  state.humanQualityReviewed = Boolean(record?.metadata?.human_quality_reviewed);
   renderGenerationDiagnostics(state.lastGenerationMetadata);
   renderRawModelResponse(state.lastRawModelResponse);
   elements.rubricsEditor.value = record?.rubrics
@@ -309,6 +320,7 @@ function resetCase() {
   elements.tagsInput.value = "";
   state.lastGenerationMetadata = null;
   state.lastRawModelResponse = null;
+  state.humanQualityReviewed = false;
   renderGenerationDiagnostics();
   renderRawModelResponse();
   if (state.currentTemplate) {
@@ -319,11 +331,14 @@ function resetCase() {
 }
 
 function buildPayload(statusOverride = null) {
+  if (statusOverride === "reviewed") {
+    state.humanQualityReviewed = true;
+  }
   const validation = renderValidation();
-  if (!validation.ok) {
+  const status = statusOverride || elements.statusSelect.value;
+  if (!validation.ok && (status !== "draft" || validation.rubrics === null)) {
     throw new Error("Corrija o JSON de rubrics antes de salvar.");
   }
-  const status = statusOverride || elements.statusSelect.value;
   assertCanUseStatus(status);
 
   return {
@@ -336,12 +351,14 @@ function buildPayload(statusOverride = null) {
     evaluator_notes: elements.evaluatorNotes.value.trim() || null,
     template_name: state.currentTemplate?.template_name || `${elements.categorySelect.value.toLowerCase()}_template.json`,
     template_version: state.currentTemplate?.template_version || "v1",
-    rubrics: validation.rubrics,
+    rubrics: validation.rubrics || [],
     status,
     tags: parseTags(),
     metadata: {
       source: "localization_rubric_lab",
       prepared_for_llm_generation: true,
+      human_quality_reviewed: state.humanQualityReviewed,
+      validation_report: validation.report,
       rubric_generation: state.lastGenerationMetadata,
       raw_model_response: state.lastRawModelResponse,
     },
@@ -581,6 +598,226 @@ async function exportCases(format) {
   await loadCases();
 }
 
+function validateRubrics() {
+  let rubrics;
+  try {
+    rubrics = elements.rubricsEditor.value.trim()
+      ? JSON.parse(elements.rubricsEditor.value)
+      : [];
+  } catch (error) {
+    const report = {
+      structureValidation: layer("fail", error.message, true, { count: 0 }),
+      formatValidation: layer("pending", "Formato pendente ate a estrutura passar.", true),
+      qualityValidation: layer("pending", "Qualidade pendente ate estrutura e formato passarem.", true),
+      approvalReadiness: layer("blocked", "Aprovacao bloqueada: camadas pendentes ou falhando.", true),
+    };
+    setJsonStatus("offline", "JSON invalido");
+    return { ok: false, message: error.message, rubrics: null, report };
+  }
+
+  const structureValidation = validateStructure(rubrics);
+  const formatValidation = validateFormat(rubrics, structureValidation);
+  const qualityValidation = validateQuality(structureValidation, formatValidation);
+  const approvalReadiness = validateApprovalReadiness(
+    structureValidation,
+    formatValidation,
+    qualityValidation,
+  );
+  const report = {
+    structureValidation,
+    formatValidation,
+    qualityValidation,
+    approvalReadiness,
+  };
+
+  if (approvalReadiness.status === "pass") {
+    setJsonStatus("ok", "Aprovacao pronta");
+  } else if (formatValidation.status === "pass") {
+    setJsonStatus("warning", "Qualidade pendente");
+  } else if (structureValidation.status === "pass") {
+    setJsonStatus("warning", "Formato pendente");
+  } else {
+    setJsonStatus("offline", "Estrutura invalida");
+  }
+
+  return {
+    ok: structureValidation.status === "pass",
+    message: structureValidation.message,
+    rubrics: Array.isArray(rubrics) ? rubrics : null,
+    report,
+  };
+}
+
+function validateStructure(rubrics) {
+  if (!Array.isArray(rubrics) || !rubrics.length) {
+    return layer("fail", "Rubrics devem ser uma lista JSON nao vazia.", true, {
+      count: 0,
+    });
+  }
+
+  const issues = [];
+  rubrics.forEach((rubric, index) => {
+    if (!rubric || typeof rubric !== "object" || Array.isArray(rubric)) {
+      issues.push(`Item ${index + 1}: precisa ser um objeto.`);
+      return;
+    }
+
+    const missing = REQUIRED_RUBRIC_FIELDS.filter((field) => !(field in rubric));
+    if (missing.length) {
+      issues.push(`Item ${index + 1}: faltam ${missing.join(", ")}.`);
+    }
+  });
+
+  if (issues.length) {
+    return layer("fail", issues.join("\n"), true, { count: rubrics.length });
+  }
+
+  return layer("pass", `${rubrics.length} rubrics encontradas. Campos obrigatorios presentes.`, false, {
+    count: rubrics.length,
+  });
+}
+
+function validateFormat(rubrics, structureValidation) {
+  if (structureValidation.status !== "pass") {
+    return layer("pending", "Formato pendente ate a estrutura passar.", true);
+  }
+
+  const issues = [];
+  rubrics.forEach((rubric, index) => {
+    const dimension = rubric.Rubric_dimensions;
+    if (typeof dimension !== "string" || !dimension.trim()) {
+      issues.push(`Item ${index + 1}: Rubric_dimensions deve ser texto.`);
+    } else if (!ACCEPTED_RUBRIC_DIMENSIONS.has(dimension)) {
+      issues.push(`Item ${index + 1}: Rubric_dimensions nao aceito.`);
+    }
+
+    const title = rubric.Rubric_title;
+    if (typeof title !== "string" || !title.trim()) {
+      issues.push(`Item ${index + 1}: Rubric_title deve ser texto.`);
+    } else if (title.trim().length > 120) {
+      issues.push(`Item ${index + 1}: Rubric_title deve ser curto e claro.`);
+    }
+
+    const description = rubric.Rubrics_description;
+    if (typeof description !== "string" || !description.trim()) {
+      issues.push(`Item ${index + 1}: Rubrics_description deve ser texto.`);
+    } else if (description.trim().length < 20) {
+      issues.push(`Item ${index + 1}: Rubrics_description curta demais para avaliar.`);
+    }
+
+    const weight = rubric.Rubrics_weight;
+    if (typeof weight !== "number" || Number.isNaN(weight)) {
+      issues.push(`Item ${index + 1}: Rubrics_weight deve ser numerico.`);
+    } else if (weight < -5 || weight > 10 || weight === 0) {
+      issues.push(`Item ${index + 1}: Rubrics_weight fora da escala configurada.`);
+    }
+
+    if (typeof rubric.is_response_specific !== "boolean") {
+      issues.push(`Item ${index + 1}: is_response_specific deve ser true ou false.`);
+    }
+  });
+
+  if (issues.length) {
+    return layer("fail", issues.join("\n"), true, { count: rubrics.length });
+  }
+
+  return layer("pass", "Estrutura e formato OK. Qualidade ainda nao avaliada.", false, {
+    count: rubrics.length,
+  });
+}
+
+function validateQuality(structureValidation, formatValidation) {
+  if (structureValidation.status !== "pass" || formatValidation.status !== "pass") {
+    return layer("pending", "Qualidade pendente ate estrutura e formato passarem.", true);
+  }
+
+  if (state.humanQualityReviewed) {
+    return layer("pass", "Qualidade marcada como revisada por avaliador humano.");
+  }
+
+  return layer(
+    "pending",
+    "Qualidade pendente: revise atomicidade, cobertura, pesos, relevancia e is_response_specific.",
+    true,
+  );
+}
+
+function validateApprovalReadiness(structureValidation, formatValidation, qualityValidation) {
+  const missing = requiredCaseFieldsMissing();
+  if (missing.length) {
+    return layer("blocked", `Aprovacao bloqueada: faltam ${missing.join(", ")}.`, true, {
+      missing_fields: missing,
+    });
+  }
+
+  if (
+    structureValidation.status !== "pass" ||
+    formatValidation.status !== "pass" ||
+    qualityValidation.status !== "pass"
+  ) {
+    return layer("blocked", "Aprovacao bloqueada: camadas pendentes ou falhando.", true);
+  }
+
+  return layer("pass", "Rubrics prontas para aprovacao.");
+}
+
+function requiredCaseFieldsMissing() {
+  const fields = [
+    ["locale", elements.localeSelect.value],
+    ["category", elements.categorySelect.value],
+    ["prompt", elements.prompt.value],
+    ["response_raw", elements.responseRaw.value],
+    ["golden_response", elements.goldenResponse.value],
+  ];
+  return fields.filter(([, value]) => !String(value || "").trim()).map(([field]) => field);
+}
+
+function layer(status, message, blocking = false, extra = {}) {
+  return { status, message, blocking, ...extra };
+}
+
+function renderValidation() {
+  const result = validateRubrics();
+  elements.validationOutput.textContent = result.message;
+  state.lastValidationReport = result.report;
+  renderValidationLayers(result.report);
+  updateActionStates(result.report);
+  return result;
+}
+
+function renderValidationLayers(report) {
+  elements.validationLayers.innerHTML = "";
+  const fields = [
+    ["structureValidation", "Structure"],
+    ["formatValidation", "Format"],
+    ["qualityValidation", "Quality"],
+    ["approvalReadiness", "Approval"],
+  ];
+
+  for (const [key, labelText] of fields) {
+    const result = report?.[key] || layer("pending", "Pendente.", true);
+    const item = document.createElement("div");
+    item.className = "diagnostic-item";
+
+    const label = document.createElement("span");
+    label.textContent = labelText;
+
+    const value = document.createElement("strong");
+    value.textContent = `${result.status}: ${result.message}`;
+
+    item.append(label, value);
+    elements.validationLayers.appendChild(item);
+  }
+}
+
+function updateActionStates(report = state.lastValidationReport) {
+  const structureOk = report?.structureValidation?.status === "pass";
+  const formatOk = report?.formatValidation?.status === "pass";
+  const approvalOk = report?.approvalReadiness?.status === "pass";
+  elements.markReviewed.disabled = !(structureOk && formatOk);
+  elements.markApproved.disabled = !approvalOk;
+}
+
 elements.loadTemplate.addEventListener("click", () => {
   loadTemplate().catch((error) => {
     elements.templateSummary.textContent = error.message;
@@ -588,7 +825,15 @@ elements.loadTemplate.addEventListener("click", () => {
 });
 
 elements.newCase.addEventListener("click", resetCase);
-elements.rubricsEditor.addEventListener("input", renderValidation);
+function invalidateQualityReview() {
+  state.humanQualityReviewed = false;
+  renderValidation();
+}
+
+elements.rubricsEditor.addEventListener("input", invalidateQualityReview);
+elements.prompt.addEventListener("input", invalidateQualityReview);
+elements.responseRaw.addEventListener("input", invalidateQualityReview);
+elements.goldenResponse.addEventListener("input", invalidateQualityReview);
 elements.categorySelect.addEventListener("change", () => {
   loadTemplate().catch((error) => {
     elements.templateSummary.textContent = error.message;

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.repositories.localization_repository import LocalizationRubricCaseRepository
+from app.services.rubric_validation_service import RubricValidationService
 
 
 class LocalizationService:
@@ -21,9 +22,11 @@ class LocalizationService:
         *,
         repository: LocalizationRubricCaseRepository,
         localization_dir: Path,
+        validation_service: RubricValidationService | None = None,
     ) -> None:
         self.repository = repository
         self.localization_dir = localization_dir
+        self.validation_service = validation_service or RubricValidationService()
 
     def list_templates(self) -> list[dict[str, Any]]:
         templates: list[dict[str, Any]] = []
@@ -89,6 +92,7 @@ class LocalizationService:
                 "metadata": payload.get("metadata") if payload.get("metadata") is not None else existing.get("metadata"),
             }
             self._assert_can_persist_status(merged_payload)
+            payload["metadata"] = merged_payload.get("metadata")
         return self.repository.update(case_id, payload)
 
     def export_jsonl(
@@ -207,6 +211,10 @@ class LocalizationService:
         status = payload.get("status")
         if status not in {"reviewed", "approved"}:
             return
+
+        report = self.validation_service.assert_can_use_status(payload, status)
+        metadata = payload.setdefault("metadata", {})
+        metadata["validation_report"] = report
 
         generation = (payload.get("metadata") or {}).get("rubric_generation") or {}
         if not generation:

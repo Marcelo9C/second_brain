@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from app.dependencies import get_localization_service, get_rubric_generation_service
+from app.dependencies import (
+    get_localization_service,
+    get_rubric_generation_service,
+    get_rubric_validation_service,
+)
 from app.schemas.localization import (
     LocalizationCategory,
     RubricCaseCreate,
     RubricCaseExportRequest,
     RubricCaseUpdate,
     RubricGenerateRequest,
+    RubricValidationRequest,
 )
 from app.services.rubric_generation_service import RubricGenerationError
 
@@ -89,6 +94,11 @@ def generate_rubrics(payload: RubricGenerateRequest) -> dict[str, object]:
         return get_rubric_generation_service().generate(payload.model_dump())
     except RubricGenerationError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@router.post("/rubrics/validate")
+def validate_rubrics(payload: RubricValidationRequest) -> dict[str, object]:
+    return get_rubric_validation_service().validate_case(payload.model_dump())
 
 
 @router.get("/providers")

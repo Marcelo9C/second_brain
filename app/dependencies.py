@@ -14,6 +14,7 @@ from app.services.providers.gemini_provider import GeminiProvider
 from app.services.providers.ollama_provider import OllamaProvider
 from app.services.rag_pipeline import RAGPipelineService
 from app.services.rubric_generation_service import RubricGenerationService
+from app.services.rubric_validation_service import RubricValidationService
 
 
 @lru_cache
@@ -45,6 +46,11 @@ def get_annotation_repository() -> AnnotationSxSRepository:
 @lru_cache
 def get_localization_repository() -> LocalizationRubricCaseRepository:
     return LocalizationRubricCaseRepository(get_db(), get_settings().postgres_schema)
+
+
+@lru_cache
+def get_rubric_validation_service() -> RubricValidationService:
+    return RubricValidationService()
 
 
 @lru_cache
@@ -82,6 +88,7 @@ def get_localization_service() -> LocalizationService:
     return LocalizationService(
         repository=get_localization_repository(),
         localization_dir=localization_dir,
+        validation_service=get_rubric_validation_service(),
     )
 
 
