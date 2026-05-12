@@ -46,6 +46,9 @@ class LocalizationTemplateResponse(BaseModel):
     category: LocalizationCategory
     template_name: str
     template_version: str = "v1"
+    artifact_type: str = "template_scaffold"
+    rubrics_are_final: bool = False
+    message: str | None = None
     rubrics: list[dict[str, Any]]
 
 

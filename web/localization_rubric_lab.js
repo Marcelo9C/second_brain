@@ -117,52 +117,6 @@ function parseTags() {
     .filter(Boolean);
 }
 
-function validateRubrics() {
-  let rubrics;
-  try {
-    rubrics = JSON.parse(elements.rubricsEditor.value);
-  } catch (error) {
-    setJsonStatus("offline", "JSON inválido");
-    return { ok: false, message: error.message, rubrics: null };
-  }
-
-  if (!Array.isArray(rubrics) || !rubrics.length) {
-    setJsonStatus("offline", "Estrutura inválida");
-    return {
-      ok: false,
-      message: "As rubrics devem ser uma lista JSON não vazia.",
-      rubrics: null,
-    };
-  }
-
-  const issues = [];
-  rubrics.forEach((rubric, index) => {
-    if (!rubric || typeof rubric !== "object" || Array.isArray(rubric)) {
-      issues.push(`Item ${index + 1}: precisa ser um objeto.`);
-      return;
-    }
-
-    const missing = REQUIRED_RUBRIC_FIELDS.filter((field) => !(field in rubric));
-    if (missing.length) {
-      issues.push(`Item ${index + 1}: faltam ${missing.join(", ")}.`);
-    }
-  });
-
-  if (issues.length) {
-    setJsonStatus("warning", "Campos faltando");
-    return { ok: false, message: issues.join("\n"), rubrics };
-  }
-
-  setJsonStatus("ok", "JSON válido");
-  return { ok: true, message: `${rubrics.length} rubrics válidas.`, rubrics };
-}
-
-function renderValidation() {
-  const result = validateRubrics();
-  elements.validationOutput.textContent = result.message;
-  return result;
-}
-
 function renderTemplateSummary() {
   if (!state.currentTemplate) {
     elements.templateSummary.textContent = "Nenhum template carregado.";
@@ -171,7 +125,8 @@ function renderTemplateSummary() {
 
   elements.templateSummary.textContent =
     `${state.currentTemplate.template_name} | ${state.currentTemplate.locale} | ` +
-    `${state.currentTemplate.category} | ${state.currentTemplate.rubrics.length} rubrics`;
+    `${state.currentTemplate.category} | ${state.currentTemplate.rubrics.length} slots de scaffold. ` +
+    "Template carregado; preencha o caso real e revise antes de aprovar.";
 }
 
 function renderCaseState(record = null) {
@@ -323,9 +278,7 @@ function resetCase() {
   state.humanQualityReviewed = false;
   renderGenerationDiagnostics();
   renderRawModelResponse();
-  if (state.currentTemplate) {
-    elements.rubricsEditor.value = JSON.stringify(state.currentTemplate.rubrics, null, 2);
-  }
+  elements.rubricsEditor.value = "[]";
   renderCaseState();
   renderValidation();
 }
@@ -340,6 +293,7 @@ function buildPayload(statusOverride = null) {
     throw new Error("Corrija o JSON de rubrics antes de salvar.");
   }
   assertCanUseStatus(status);
+  const caseDataReadyForGeneration = requiredCaseFieldsMissing().length === 0;
 
   return {
     locale: elements.localeSelect.value,
@@ -356,7 +310,16 @@ function buildPayload(statusOverride = null) {
     tags: parseTags(),
     metadata: {
       source: "localization_rubric_lab",
-      prepared_for_llm_generation: true,
+      case_data_ready_for_generation: caseDataReadyForGeneration,
+      rubric_source: validation.rubrics?.length ? "editor_draft" : "empty_draft",
+      template_scaffold: state.currentTemplate
+        ? {
+            template_name: state.currentTemplate.template_name,
+            template_version: state.currentTemplate.template_version,
+            category: state.currentTemplate.category,
+            scaffold_slots: state.currentTemplate.rubrics?.length || 0,
+          }
+        : null,
       human_quality_reviewed: state.humanQualityReviewed,
       validation_report: validation.report,
       rubric_generation: state.lastGenerationMetadata,
@@ -449,9 +412,16 @@ async function loadTemplate() {
   const category = elements.categorySelect.value;
   state.currentTemplate = await fetchJson(`/api/localization/templates/${locale}/${category}`);
   elements.caseCategory.value = category;
-  elements.rubricsEditor.value = JSON.stringify(state.currentTemplate.rubrics, null, 2);
+  state.lastGenerationMetadata = null;
+  state.lastRawModelResponse = null;
+  state.humanQualityReviewed = false;
+  state.lastValidationReport = null;
+  renderGenerationDiagnostics();
+  renderRawModelResponse();
   renderTemplateSummary();
   renderValidation();
+  elements.validationOutput.textContent =
+    "Template carregado como scaffold. O editor de rubrics nao foi preenchido automaticamente; use o scaffold apenas como referencia.";
 }
 
 async function loadCases() {
@@ -650,7 +620,7 @@ function validateRubrics() {
 
 function validateStructure(rubrics) {
   if (!Array.isArray(rubrics) || !rubrics.length) {
-    return layer("fail", "Rubrics devem ser uma lista JSON nao vazia.", true, {
+    return layer("fail", "Draft vazio: nenhuma rubric real no editor. Templates nao contam como rubrics finais.", true, {
       count: 0,
     });
   }

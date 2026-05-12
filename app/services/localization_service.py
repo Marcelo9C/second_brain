@@ -58,6 +58,9 @@ class LocalizationService:
             "category": category,
             "template_name": template_name,
             "template_version": "v1",
+            "artifact_type": "template_scaffold",
+            "rubrics_are_final": False,
+            "message": "Template scaffold loaded. Fill the real case and review before approval.",
             "rubrics": rubrics,
         }
 
