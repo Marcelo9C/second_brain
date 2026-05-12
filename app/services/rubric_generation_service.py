@@ -7,6 +7,12 @@ from typing import Any
 
 from app.schemas.localization import REQUIRED_RUBRIC_FIELDS, validate_rubric_payload
 from app.services.providers.base_provider import BaseProvider, ProviderError, ProviderPrompt
+from app.services.localization_workflow_engine import (
+    CaseStateSnapshot,
+    WorkflowDecisionEngine,
+    WorkflowDecisionStatus,
+    WorkflowIntent,
+)
 
 
 class RubricGenerationError(RuntimeError):
@@ -22,11 +28,31 @@ class RubricGenerationService:
         *,
         providers: dict[str, BaseProvider],
         default_provider: str = "ollama",
+        workflow_engine: WorkflowDecisionEngine | None = None,
     ) -> None:
         self.providers = providers
         self.default_provider = default_provider
+        self.workflow_engine = workflow_engine or WorkflowDecisionEngine()
 
     def generate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        workflow_decision = self.workflow_engine.resolve(
+            WorkflowIntent.GENERATE_WITH_AI,
+            CaseStateSnapshot.from_payload(payload),
+        )
+        if not workflow_decision.model_call:
+            return {
+                "success": False,
+                "rubrics": None,
+                "metadata": {
+                    "generation_executed": False,
+                    "workflow_decision": workflow_decision.to_dict(),
+                },
+                "raw_model_response": None,
+                "error": workflow_decision.reason,
+                "warning": workflow_decision.message,
+                "workflow_decision": workflow_decision.to_dict(),
+            }
+
         provider_requested = self._clean_optional_text(payload.get("provider")) or self.default_provider
         model_requested = self._clean_optional_text(payload.get("model"))
         provider = self._provider(provider_requested)
@@ -43,7 +69,25 @@ class RubricGenerationService:
             provider_result = provider.generate(prompt=prompt, model=model_requested)
         except ProviderError as error:
             self._log_generation(provider_requested, log_model, "error")
-            raise RubricGenerationError(str(error)) from error
+            failure_decision = self._generation_decision(
+                WorkflowDecisionStatus.GENERATION_FAILED.value,
+                reason="provider_error",
+                message=str(error),
+                base_decision=workflow_decision,
+            )
+            return {
+                "success": False,
+                "rubrics": None,
+                "metadata": {
+                    "generation_executed": True,
+                    "workflow_decision": failure_decision,
+                    "raw_error": str(error),
+                },
+                "raw_model_response": None,
+                "error": str(error),
+                "warning": "Provider failed after workflow allowed generation.",
+                "workflow_decision": failure_decision,
+            }
 
         mismatch = self._audit_mismatch(
             provider_requested=provider_requested,
@@ -69,6 +113,8 @@ class RubricGenerationService:
             "approx_prompt_tokens": self._approx_tokens(prompt_text),
             "approx_response_tokens": self._approx_tokens(provider_result.text),
             "response_char_count": len(provider_result.text),
+            "generation_executed": True,
+            "workflow_decision": workflow_decision.to_dict(),
         }
 
         try:
@@ -93,6 +139,12 @@ class RubricGenerationService:
             }
 
         self._log_generation(provider_result.provider_used, provider_result.model_used, validation["status"])
+        success_decision = self._generation_decision(
+            WorkflowDecisionStatus.GENERATION_SUCCEEDED.value,
+            reason="provider_success",
+            message="Provider returned rubric JSON after workflow allowed generation.",
+            base_decision=workflow_decision,
+        )
 
         return {
             "success": True,
@@ -100,9 +152,11 @@ class RubricGenerationService:
             "metadata": {
                 **metadata,
                 "validation_status": validation["status"],
+                "workflow_decision": success_decision,
             },
             "raw_model_response": provider_result.text,
             "warning": "Rubrics geradas por IA devem ser revisadas antes da aprovacao.",
+            "workflow_decision": success_decision,
         }
 
     def list_providers(self) -> list[dict[str, Any]]:
@@ -288,3 +342,23 @@ class RubricGenerationService:
             "Knowledge": "knowledge_template.json",
         }
         return names.get(str(category), "base_template")
+
+    def _generation_decision(
+        self,
+        decision: str,
+        *,
+        reason: str,
+        message: str,
+        base_decision: Any,
+    ) -> dict[str, Any]:
+        payload = base_decision.to_dict() if hasattr(base_decision, "to_dict") else dict(base_decision)
+        payload.update(
+            {
+                "decision": decision,
+                "can_execute": decision == WorkflowDecisionStatus.GENERATION_SUCCEEDED.value,
+                "model_call": True,
+                "reason": reason,
+                "message": message,
+            }
+        )
+        return payload
