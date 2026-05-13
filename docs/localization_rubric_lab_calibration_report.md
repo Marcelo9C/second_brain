@@ -250,3 +250,263 @@ Evidence-based recommendation:
 - Do not tune category behavior yet.
 - First consider a minimal, non-confidential prompt adjustment to reinforce the official weight range and the consequence of invalid weights.
 - Re-run the same synthetic category calibration after the validity issue improves.
+
+## Sprint 5G.4 Contract-Based Generation Calibration
+
+Confidentiality note:
+- This section uses only synthetic cases and abstract operational checks.
+- It does not include client guide excerpts, screenshots, OCR, proprietary criteria, real customer examples, or close paraphrases of confidential material.
+
+Provider/model used:
+- Gemini / gemini-2.5-flash
+
+Diagnostic question:
+- If generation fails, does it fail by the active contract?
+- If generation passes, does it pass by the active contract?
+
+### Backend Contract Boundary Checks
+
+Synthetic validation checks:
+- Chitchat accepts `-6` and rejects `-7` with: `negative weight must be between -6 and -1`.
+- Writing accepts `-7` and rejects `-8` with: `negative weight must be between -7 and -1`.
+- Knowledge accepts `-10` and rejects `-11` with: `negative weight must be between -10 and -1`.
+
+Result:
+- Pass. Validation messages reflect the active contract, not the legacy `-5..-1` scale.
+
+### Prompt Contract Projection Checks
+
+For each category, the captured provider prompt included the active negative range and all allowed dimensions from the formal template contract.
+
+Observed:
+- Chitchat: prompt included `-6 to -1`; old literal `-5 to -1` absent.
+- Writing: prompt included `-7 to -1`; old literal `-5 to -1` absent.
+- Knowledge: prompt included `-10 to -1`; old literal `-5 to -1` absent.
+
+Result:
+- Pass. Prompt projection now follows the active contract.
+
+### Service Generation Round
+
+This round called the backend generation service with the active server-resolved contract. It did not persist records.
+
+#### Category: Chitchat
+
+Template:
+- `chitchat_template.json`
+
+Contract observed:
+- Negative range: `-6..-1`
+- Allowed dimensions: `Cultural Understanding and Application`, `Natural Language Fluency`
+
+Generation state:
+- `valid`
+
+Provider/model:
+- `gemini / gemini-2.5-flash`
+
+Rubrics applied:
+- yes
+
+Rubric count:
+- 3
+
+Weights generated:
+- `-6`, `-4`, `5`
+
+Dimensions generated:
+- `Cultural Understanding and Application`
+- `Natural Language Fluency`
+
+Negative rubric present:
+- yes
+
+Response-specific rubric present:
+- yes
+
+Quality warnings:
+- `Only 3 rubrics generated; expected at least 5 for a complete evaluation set.`
+
+History artifact state:
+- Expected from generated item shape: `ai_generated_applied`
+
+Human assessment:
+- Partially useful.
+
+Guide-alignment assessment:
+- Abstractly aligned on the main synthetic failure modes, but incomplete due low rubric count.
+
+Main issue:
+- The generation is valid and contract-compliant, but under-generates compared with the expected Chitchat contract count of 5.
+
+Recommended adjustment:
+- Do not adjust contract yet. Consider a later prompt-calibration pass to make expected count more explicit.
+
+Classification:
+- `prompt_contract_projection_gap`
+
+#### Category: Writing
+
+Template:
+- `writing_template.json`
+
+Contract observed:
+- Negative range: `-7..-1`
+- Allowed dimensions: `Cultural Understanding and Application`, `Natural Language Fluency`
+
+Generation state:
+- `valid`
+
+Provider/model:
+- `gemini / gemini-2.5-flash`
+
+Rubrics applied:
+- yes
+
+Rubric count:
+- 3
+
+Weights generated:
+- `-7`, `-7`, `7`
+
+Dimensions generated:
+- `Natural Language Fluency`
+- `Cultural Understanding and Application`
+
+Negative rubric present:
+- yes
+
+Response-specific rubric present:
+- yes
+
+Quality warnings:
+- `Only 3 rubrics generated; expected at least 5 for a complete evaluation set.`
+
+History artifact state:
+- Expected from generated item shape: `ai_generated_applied`
+
+Human assessment:
+- Partially useful.
+
+Guide-alignment assessment:
+- Abstractly aligned with explicit instruction/format failures, but incomplete due low rubric count.
+
+Main issue:
+- The generation is valid and contract-compliant, but under-generates compared with the expected Writing contract count of 6.
+
+Recommended adjustment:
+- Do not adjust contract yet. Consider later prompt calibration around expected count and coverage.
+
+Classification:
+- `prompt_contract_projection_gap`
+
+#### Category: Knowledge
+
+Template:
+- `knowledge_template.json`
+
+Contract observed:
+- Negative range: `-10..-1`
+- Allowed dimensions: `Cultural Understanding and Application`, `Facts and Local Knowledge`
+
+Generation state:
+- `valid`
+
+Provider/model:
+- `gemini / gemini-2.5-flash`
+
+Rubrics applied:
+- yes
+
+Rubric count:
+- 3
+
+Weights generated:
+- `-8`, `-7`, `-5`
+
+Dimensions generated:
+- `Facts and Local Knowledge`
+- `Cultural Understanding and Application`
+
+Negative rubric present:
+- yes
+
+Response-specific rubric present:
+- yes
+
+Quality warnings:
+- `Only 3 rubrics generated; expected at least 5 for a complete evaluation set.`
+
+History artifact state:
+- Expected from generated item shape: `ai_generated_applied`
+
+Human assessment:
+- Partially useful.
+
+Guide-alignment assessment:
+- Abstractly aligned with factual caution and unsupported-claim penalties, but incomplete due low rubric count.
+
+Main issue:
+- The generation is valid and contract-compliant, but under-generates compared with the expected Knowledge contract count of 6.
+
+Recommended adjustment:
+- Do not adjust contract yet. Consider later prompt calibration around expected count and complete coverage.
+
+Classification:
+- `prompt_contract_projection_gap`
+
+### Persistence and History Round
+
+This round saved synthetic calibration records with tag `sprint-5g4-calibration`.
+
+Saved records:
+- Chitchat: `71990b44-7b2f-4ed2-8ebe-99072db7ae86`
+- Writing: `8e5f3d56-6ccc-4f9b-91e2-7da8fef66068`
+- Knowledge: `2ed31780-f60b-4b9b-890c-947c93dc3643`
+
+Observed metadata contract snapshots:
+- Chitchat saved `metadata.template_contract.weight_policy.negative_min = -6`.
+- Writing saved `metadata.template_contract.weight_policy.negative_min = -7`.
+- Knowledge saved `metadata.template_contract.weight_policy.negative_min = -10`.
+
+History state observed from persisted record shape:
+- Chitchat: `ai_generated_applied`
+- Writing: `empty_draft`
+- Knowledge: `ai_generated_applied`
+
+Persistence notes:
+- Chitchat persisted with 5 valid rubrics: weights `-6`, `-5`, `7`, `5`, `4`.
+- Knowledge persisted with 2 valid rubrics: weights `-7`, `-10`.
+- Writing persistence run hit Gemini HTTP 429 quota before valid rubrics were returned.
+
+Writing provider failure metadata:
+- `generation_failure_type = provider_failed`
+- `generation_executed = true`
+- `raw_error` indicates Gemini free-tier quota exceeded.
+
+Issue discovered:
+- The persisted Writing record is shown as `empty_draft` by history-state logic because provider failures set `generation_failure_type = provider_failed` but do not set `validation_status = failed`.
+- This is not a contract failure and not model noncompliance.
+
+Classification:
+- `provider_failure`
+- `history_presentation_bug`
+
+Recommended adjustment:
+- In a later focused UI/history patch, treat `generation_failure_type != "none"` with no applied rubrics as a failed generation artifact, even when `validation_status` is absent.
+- Do not change provider, fallback, retry, repair, or workflow behavior as part of this calibration.
+
+### 5G.4 Interim Conclusion
+
+Answers:
+- The active contract used was correct for all three categories.
+- The prompt reflected the correct contract for all three categories.
+- Backend validation used the correct contract and emitted contract-specific boundary messages.
+- Gemini no longer failed because of the legacy `-5..-1` scale in this diagnostic round.
+- Generated rubrics were valid but tended to under-generate relative to `expected_rubric_count`.
+- Persisted history is honest for successful AI-applied rubrics, but provider failures can still appear as `empty_draft`.
+
+Recommended next step:
+- Do not change contract or validator.
+- Consider a narrow prompt calibration that communicates `expected_rubric_count` more explicitly.
+- Separately consider a narrow history-state fix for provider failures with no applied rubrics.
