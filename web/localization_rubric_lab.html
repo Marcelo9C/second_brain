@@ -158,7 +158,23 @@
               <div id="json-status" class="badge warning">Aguardando</div>
             </div>
 
+            <div id="editor-state-summary" class="state-summary neutral">
+              Aguardando rubrics.
+            </div>
+
+            <div class="editor-toolbar" aria-label="Acoes do editor de rubrics">
+              <button id="generate-rubrics" type="button">Gerar com IA</button>
+              <button id="copy-json" class="ghost" type="button">Copiar JSON</button>
+              <button id="save-case" type="button">Salvar draft</button>
+              <button id="mark-reviewed" class="ghost" type="button">Marcar reviewed</button>
+              <button id="mark-approved" class="ghost" type="button">Aprovar</button>
+            </div>
+
             <textarea id="rubrics-editor" class="json-editor" spellcheck="false"></textarea>
+
+            <div id="next-step" class="next-step">
+              Preencha o caso e gere rubrics, ou escreva/copie rubrics manualmente.
+            </div>
 
             <div id="validation-output" class="embedding-summary">
               Carregue um template para começar.
@@ -166,12 +182,6 @@
 
             <div id="validation-layers" class="diagnostics-grid"></div>
 
-            <div class="actions">
-              <button id="generate-rubrics" type="button">Gerar rubrics com IA</button>
-              <button id="save-case" type="button">Salvar draft</button>
-              <button id="mark-reviewed" class="ghost" type="button">Marcar reviewed</button>
-              <button id="mark-approved" class="ghost" type="button">Aprovar</button>
-            </div>
             <div id="ai-warning" class="embedding-summary">
               Rubrics geradas por IA devem ser revisadas antes da aprovação.
             </div>
@@ -184,19 +194,31 @@
                 <h2>Diagnóstico da geração</h2>
               </div>
             </div>
-            <div id="generation-diagnostics" class="diagnostics-grid">
-              <div class="empty-state">Nenhuma geração realizada.</div>
+            <div id="generation-summary" class="state-summary neutral">
+              Nenhuma geracao executada.
             </div>
+            <details class="audit-details">
+              <summary>Detalhes tecnicos da geracao</summary>
+              <div id="generation-diagnostics" class="diagnostics-grid">
+                <div class="empty-state">Nenhuma geração realizada.</div>
+              </div>
+            </details>
           </section>
 
           <section class="history-panel">
             <div class="panel-header tight">
               <div>
                 <p class="eyebrow">Auditoria</p>
-                <h2>Resposta bruta do modelo</h2>
+                <h2>Resposta bruta do modelo - auditoria</h2>
               </div>
             </div>
-            <pre id="raw-model-response" class="code-block small raw-model-response">Nenhuma resposta bruta registrada.</pre>
+            <details class="audit-details">
+              <summary>Ver resposta bruta preservada</summary>
+              <div id="raw-model-note" class="embedding-summary">
+                Nenhuma resposta bruta registrada.
+              </div>
+              <pre id="raw-model-response" class="code-block small raw-model-response">Nenhuma resposta bruta registrada.</pre>
+            </details>
           </section>
 
           <section class="history-panel">

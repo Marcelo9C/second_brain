@@ -50,12 +50,17 @@ const elements = {
   evaluatorNotes: document.querySelector("#evaluator-notes"),
   rubricsEditor: document.querySelector("#rubrics-editor"),
   jsonStatus: document.querySelector("#json-status"),
+  editorStateSummary: document.querySelector("#editor-state-summary"),
   validationOutput: document.querySelector("#validation-output"),
   validationLayers: document.querySelector("#validation-layers"),
   generateRubrics: document.querySelector("#generate-rubrics"),
+  copyJson: document.querySelector("#copy-json"),
   aiWarning: document.querySelector("#ai-warning"),
+  nextStep: document.querySelector("#next-step"),
+  generationSummary: document.querySelector("#generation-summary"),
   generationDiagnostics: document.querySelector("#generation-diagnostics"),
   rawModelResponse: document.querySelector("#raw-model-response"),
+  rawModelNote: document.querySelector("#raw-model-note"),
   saveCase: document.querySelector("#save-case"),
   markReviewed: document.querySelector("#mark-reviewed"),
   markApproved: document.querySelector("#mark-approved"),
@@ -92,9 +97,21 @@ function formatDate(value) {
 }
 
 function setJsonStatus(kind, message) {
-  elements.jsonStatus.classList.remove("ok", "offline", "warning");
+  elements.jsonStatus.classList.remove("ok", "offline", "warning", "neutral");
   elements.jsonStatus.classList.add(kind);
   elements.jsonStatus.textContent = message;
+}
+
+function setStateSummary(element, kind, title, message) {
+  element.classList.remove("ok", "offline", "warning", "neutral");
+  element.classList.add(kind);
+  element.innerHTML = "";
+
+  const strong = document.createElement("strong");
+  strong.textContent = title;
+  const span = document.createElement("span");
+  span.textContent = message;
+  element.append(strong, span);
 }
 
 function parseChatHistory() {
@@ -144,12 +161,20 @@ function renderGenerationDiagnostics(metadata = null) {
   elements.generationDiagnostics.classList.remove("mismatch");
 
   if (!metadata) {
+    setStateSummary(
+      elements.generationSummary,
+      "neutral",
+      "Nenhuma geracao executada",
+      "A IA ainda nao foi chamada para este caso.",
+    );
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = "Nenhuma geração realizada.";
     elements.generationDiagnostics.appendChild(empty);
     return;
   }
+
+  renderGenerationSummary(metadata);
 
   if (hasGenerationMismatch(metadata) || metadata.validation_status === "failed") {
     elements.generationDiagnostics.classList.add("mismatch");
@@ -201,6 +226,68 @@ function renderGenerationDiagnostics(metadata = null) {
 
 function renderRawModelResponse(raw = null) {
   elements.rawModelResponse.textContent = raw || "Nenhuma resposta bruta registrada.";
+  if (!raw) {
+    elements.rawModelNote.textContent = "Nenhuma resposta bruta registrada.";
+    return;
+  }
+  if (state.lastGenerationMetadata?.validation_status === "failed") {
+    elements.rawModelNote.textContent =
+      "Resposta bruta preservada apenas para auditoria. Nao foi aplicada como rubrics validas.";
+    return;
+  }
+  elements.rawModelNote.textContent =
+    "Resposta bruta preservada para auditoria. O JSON do editor deve ser revisado separadamente.";
+}
+
+function renderGenerationSummary(metadata) {
+  if (metadata.generation_state === "stale" || metadata.validation_status === "stale") {
+    setStateSummary(
+      elements.generationSummary,
+      "warning",
+      "Geracao stale",
+      "O caso foi alterado depois da ultima geracao. Gere novamente ou revise manualmente.",
+    );
+    return;
+  }
+
+  if (metadata.generation_executed === false) {
+    setStateSummary(
+      elements.generationSummary,
+      "neutral",
+      "Nenhuma geracao executada",
+      metadata.workflow_decision?.message || "O workflow decidiu nao chamar o modelo.",
+    );
+    return;
+  }
+
+  if (metadata.raw_error || metadata.workflow_decision?.decision === "generation_failed") {
+    setStateSummary(
+      elements.generationSummary,
+      "offline",
+      "Geracao falhou",
+      metadata.raw_error || metadata.workflow_decision?.message || "A chamada ao provider falhou.",
+    );
+    return;
+  }
+
+  if (metadata.validation_status === "failed" || metadata.result_discarded === true) {
+    setStateSummary(
+      elements.generationSummary,
+      "offline",
+      "Resultado nao aplicado",
+      "Geracao executada, mas o resultado falhou na validacao ou foi descartado.",
+    );
+    return;
+  }
+
+  setStateSummary(
+    elements.generationSummary,
+    "ok",
+    "Geracao executada",
+    `Provider: ${metadata.provider_used || "n/d"} | Modelo: ${metadata.model_used || "n/d"} | Fallback: ${
+      metadata.fallback_applied === true ? "sim" : "nao"
+    }`,
+  );
 }
 
 function hasGenerationMismatch(metadata) {
@@ -543,7 +630,7 @@ async function generateRubrics() {
     renderValidation();
   } finally {
     elements.generateRubrics.disabled = false;
-    elements.generateRubrics.textContent = "Gerar rubrics com IA";
+    elements.generateRubrics.textContent = "Gerar com IA";
   }
 }
 
@@ -562,6 +649,28 @@ async function exportCases(format) {
   });
   elements.exportOutput.textContent = JSON.stringify(result, null, 2);
   await loadCases();
+}
+
+async function copyEditorJson() {
+  const text = elements.rubricsEditor.value;
+  let validJson = true;
+  try {
+    JSON.parse(text);
+  } catch {
+    validJson = false;
+  }
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+  } else {
+    elements.rubricsEditor.focus();
+    elements.rubricsEditor.select();
+    document.execCommand("copy");
+  }
+
+  elements.validationOutput.textContent = validJson
+    ? "JSON copiado."
+    : "Texto copiado. Atencao: o conteudo nao e JSON valido.";
 }
 
 function validateRubrics() {
@@ -596,8 +705,12 @@ function validateRubrics() {
     approvalReadiness,
   };
 
-  if (approvalReadiness.status === "pass") {
+  if (structureValidation.status === "empty") {
+    setJsonStatus("neutral", "Draft vazio");
+  } else if (approvalReadiness.status === "pass") {
     setJsonStatus("ok", "Aprovacao pronta");
+  } else if (formatValidation.status === "fail") {
+    setJsonStatus("offline", "Formato invalido");
   } else if (formatValidation.status === "pass") {
     setJsonStatus("warning", "Qualidade pendente");
   } else if (structureValidation.status === "pass") {
@@ -615,8 +728,14 @@ function validateRubrics() {
 }
 
 function validateStructure(rubrics) {
-  if (!Array.isArray(rubrics) || !rubrics.length) {
-    return layer("fail", "Draft vazio: nenhuma rubric real no editor. Templates nao contam como rubrics finais.", true, {
+  if (!Array.isArray(rubrics)) {
+    return layer("fail", "Estrutura invalida: o JSON de rubrics precisa ser uma lista.", true, {
+      count: 0,
+    });
+  }
+
+  if (!rubrics.length) {
+    return layer("empty", "Nenhuma rubric real no editor. Preencha o caso e gere rubrics, ou escreva/copie rubrics manualmente.", true, {
       count: 0,
     });
   }
@@ -746,9 +865,67 @@ function renderValidation() {
   const result = validateRubrics();
   elements.validationOutput.textContent = result.message;
   state.lastValidationReport = result.report;
+  renderEditorState(result);
   renderValidationLayers(result.report);
   updateActionStates(result.report);
   return result;
+}
+
+function renderEditorState(result) {
+  const report = result.report;
+  let kind = "neutral";
+  let title = "Aguardando rubrics";
+  let message = result.message;
+
+  if (result.rubrics === null) {
+    kind = "offline";
+    title = "JSON invalido";
+    message = "O editor contem texto que nao pode ser interpretado como JSON.";
+  } else if (report.structureValidation.status === "empty") {
+    kind = "neutral";
+    title = "Draft vazio";
+  } else if (report.formatValidation.status === "fail") {
+    kind = "offline";
+    title = "Formato invalido";
+  } else if (report.formatValidation.status === "pass" && report.qualityValidation.status !== "pass") {
+    kind = "warning";
+    title = "Qualidade pendente";
+  } else if (report.approvalReadiness.status === "pass") {
+    kind = "ok";
+    title = "Aprovacao pronta";
+  } else if (report.structureValidation.status === "pass") {
+    kind = "warning";
+    title = "Estrutura OK";
+  }
+
+  setStateSummary(elements.editorStateSummary, kind, title, message);
+  elements.nextStep.textContent = getRecommendedNextStep(result, state.lastGenerationMetadata);
+}
+
+function getRecommendedNextStep(result, generationMetadata) {
+  const report = result.report;
+  if (generationMetadata?.generation_state === "stale" || generationMetadata?.validation_status === "stale") {
+    return "O caso mudou depois da ultima geracao. Gere novamente ou revise manualmente antes de avancar.";
+  }
+  if (result.rubrics === null) {
+    return "Corrija o JSON ou copie o texto bruto para revisar fora do editor.";
+  }
+  if (report.structureValidation.status === "empty") {
+    return "Preencha o caso e gere rubrics, ou escreva/copie rubrics manualmente.";
+  }
+  if (report.formatValidation.status === "fail") {
+    return "Corrija dimensoes, pesos, campos obrigatorios e tipos antes de revisar qualidade.";
+  }
+  if (generationMetadata?.validation_status === "failed") {
+    return "A geracao rodou, mas o resultado falhou na validacao. Corrija as rubrics ou gere novamente.";
+  }
+  if (report.qualityValidation.status !== "pass") {
+    return "Revise atomicidade, cobertura, pesos e relevancia antes de marcar reviewed.";
+  }
+  if (report.approvalReadiness.status !== "pass") {
+    return "Complete os campos do caso e confirme a prontidao antes de aprovar.";
+  }
+  return "Caso pronto para aprovacao ou exportacao conforme o fluxo.";
 }
 
 function renderValidationLayers(report) {
@@ -801,10 +978,18 @@ function invalidateQualityReview() {
 }
 
 function invalidateGenerationMetadata() {
+  const hadGeneration = Boolean(state.lastGenerationMetadata || state.lastRawModelResponse);
   state.lastGenerationMetadata = null;
   state.lastRawModelResponse = null;
   state.lastValidationReport = null;
-  renderGenerationDiagnostics();
+  if (hadGeneration) {
+    state.lastGenerationMetadata = {
+      generation_state: "stale",
+      validation_status: "stale",
+      generation_executed: false,
+    };
+  }
+  renderGenerationDiagnostics(state.lastGenerationMetadata);
   renderRawModelResponse();
   renderValidation();
 }
@@ -857,6 +1042,12 @@ elements.saveCase.addEventListener("click", () => {
 elements.generateRubrics.addEventListener("click", () => {
   generateRubrics().catch((error) => {
     elements.aiWarning.textContent = error.message;
+  });
+});
+
+elements.copyJson.addEventListener("click", () => {
+  copyEditorJson().catch((error) => {
+    elements.validationOutput.textContent = error.message;
   });
 });
 
