@@ -180,6 +180,14 @@
               Preencha o caso e gere rubrics, ou escreva/copie rubrics manualmente.
             </div>
 
+            <section id="failed-generation-panel" class="failed-generation-panel" hidden>
+              <span class="panel-kicker">Geração inválida</span>
+              <h3>Resultado não aplicado</h3>
+              <p>A chamada ao modelo foi executada, mas a resposta não passou na validação. Nenhuma rubric foi aplicada ao editor.</p>
+              <p><strong>Motivo:</strong> <span id="failed-generation-reason">n/d</span></p>
+              <p><strong>Próximo passo:</strong> Revise os dados do caso, tente outro modelo ou gere novamente.</p>
+            </section>
+
             <div class="rubrics-workbench" aria-label="Area de edicao e revisao de rubrics">
               <section class="rubric-preview-panel" aria-labelledby="rubric-cards-title">
                 <div class="workbench-panel-header">
@@ -243,7 +251,7 @@
             <div id="generation-summary" class="state-summary neutral">
               Nenhuma geracao executada.
             </div>
-            <details class="audit-details">
+            <details id="generation-diagnostics-details" class="audit-details">
               <summary>Detalhes tecnicos da geracao</summary>
               <div id="generation-diagnostics" class="diagnostics-grid">
                 <div class="empty-state">Nenhuma geração realizada.</div>
@@ -258,7 +266,7 @@
                 <h2>Resposta bruta do modelo - auditoria</h2>
               </div>
             </div>
-            <details class="audit-details">
+            <details id="raw-model-details" class="audit-details">
               <summary>Ver resposta bruta preservada</summary>
               <div id="raw-model-note" class="embedding-summary">
                 Nenhuma resposta bruta registrada.

@@ -55,6 +55,8 @@ const elements = {
   editorStateSummary: document.querySelector("#editor-state-summary"),
   validationOutput: document.querySelector("#validation-output"),
   validationLayers: document.querySelector("#validation-layers"),
+  failedGenerationPanel: document.querySelector("#failed-generation-panel"),
+  failedGenerationReason: document.querySelector("#failed-generation-reason"),
   qualityHeuristics: document.querySelector("#quality-heuristics"),
   qualityHeuristicsStatus: document.querySelector("#quality-heuristics-status"),
   qualityHeuristicsMessage: document.querySelector("#quality-heuristics-message"),
@@ -67,8 +69,10 @@ const elements = {
   nextStep: document.querySelector("#next-step"),
   generationSummary: document.querySelector("#generation-summary"),
   generationDiagnostics: document.querySelector("#generation-diagnostics"),
+  generationDiagnosticsDetails: document.querySelector("#generation-diagnostics-details"),
   rawModelResponse: document.querySelector("#raw-model-response"),
   rawModelNote: document.querySelector("#raw-model-note"),
+  rawModelDetails: document.querySelector("#raw-model-details"),
   saveCase: document.querySelector("#save-case"),
   markReviewed: document.querySelector("#mark-reviewed"),
   markApproved: document.querySelector("#mark-approved"),
@@ -177,6 +181,10 @@ function renderCaseState(record = null) {
 function renderGenerationDiagnostics(metadata = null) {
   elements.generationDiagnostics.innerHTML = "";
   elements.generationDiagnostics.classList.remove("mismatch");
+  renderFailedGenerationPanel(metadata);
+  if (hasFailedGenerationResult(metadata)) {
+    elements.generationDiagnosticsDetails.open = false;
+  }
 
   if (!metadata) {
     setStateSummary(
@@ -194,7 +202,7 @@ function renderGenerationDiagnostics(metadata = null) {
 
   renderGenerationSummary(metadata);
 
-  if (hasGenerationMismatch(metadata) || metadata.validation_status === "failed") {
+  if (hasGenerationMismatch(metadata) || hasFailedGenerationResult(metadata)) {
     elements.generationDiagnostics.classList.add("mismatch");
     const alert = document.createElement("div");
     alert.className = "diagnostic-alert";
@@ -248,9 +256,10 @@ function renderRawModelResponse(raw = null) {
     elements.rawModelNote.textContent = "Nenhuma resposta bruta registrada.";
     return;
   }
-  if (state.lastGenerationMetadata?.validation_status === "failed") {
+  if (hasFailedGenerationResult()) {
+    elements.rawModelDetails.open = false;
     elements.rawModelNote.textContent =
-      "Resposta bruta preservada apenas para auditoria. Nao foi aplicada como rubrics validas.";
+      "Resposta bruta preservada apenas para auditoria. Não foi aplicada como rubrics válidas.";
     return;
   }
   elements.rawModelNote.textContent =
@@ -288,12 +297,12 @@ function renderGenerationSummary(metadata) {
     return;
   }
 
-  if (metadata.validation_status === "failed" || metadata.result_discarded === true) {
+  if (hasFailedGenerationResult(metadata)) {
     setStateSummary(
       elements.generationSummary,
       "offline",
       "Resultado nao aplicado",
-      "Geracao executada, mas o resultado falhou na validacao ou foi descartado.",
+      "A chamada ao modelo foi executada, mas a resposta não passou na validação. Nenhuma rubric foi aplicada ao editor.",
     );
     return;
   }
@@ -310,6 +319,34 @@ function renderGenerationSummary(metadata) {
 
 function hasGenerationMismatch(metadata) {
   return metadata?.fallback_applied === true || metadata?.result_discarded === true;
+}
+
+function hasFailedGenerationResult(metadata = state.lastGenerationMetadata) {
+  return Boolean(
+    metadata?.validation_status === "failed" ||
+      metadata?.result_discarded === true ||
+      metadata?.validation_error,
+  );
+}
+
+function failedGenerationReason(metadata = state.lastGenerationMetadata) {
+  return (
+    metadata?.validation_error ||
+    metadata?.blocked_reason ||
+    metadata?.raw_error ||
+    metadata?.workflow_decision?.message ||
+    "A resposta do modelo não passou na validação."
+  );
+}
+
+function renderFailedGenerationPanel(metadata = state.lastGenerationMetadata) {
+  if (!hasFailedGenerationResult(metadata)) {
+    elements.failedGenerationPanel.hidden = true;
+    elements.failedGenerationReason.textContent = "n/d";
+    return;
+  }
+  elements.failedGenerationPanel.hidden = false;
+  elements.failedGenerationReason.textContent = failedGenerationReason(metadata);
 }
 
 function assertGenerationMatch(metadata) {
@@ -625,13 +662,16 @@ async function generateRubrics() {
       template_used: state.currentTemplate?.template_name || result.metadata?.template_used,
     };
     state.lastRawModelResponse = result.raw_model_response || null;
+    state.backendValidationRequestId += 1;
     renderGenerationDiagnostics(state.lastGenerationMetadata);
     renderRawModelResponse(state.lastRawModelResponse);
+    renderQualityHeuristics();
     try {
       assertGenerationMatch(state.lastGenerationMetadata);
     } catch (e) {
       elements.aiWarning.textContent = e.message;
       elements.validationOutput.textContent = e.message;
+      renderQualityHeuristics();
       return;
     }
 
@@ -640,6 +680,7 @@ async function generateRubrics() {
         result.warning || result.error || "A geração falhou na validação.";
       elements.validationOutput.textContent =
         result.error || "A resposta do modelo não passou na validação.";
+      renderQualityHeuristics();
       return;
     }
 
@@ -1131,6 +1172,19 @@ function renderValidationLayers(report) {
 }
 
 function renderQualityHeuristics(qualityHeuristics) {
+  if (hasFailedGenerationResult()) {
+    elements.qualityHeuristics.classList.remove("pass", "warning", "pending");
+    elements.qualityHeuristics.classList.add("pending");
+    elements.qualityHeuristicsStatus.className = "badge neutral";
+    elements.qualityHeuristicsStatus.textContent = "unavailable";
+    elements.qualityHeuristicsMessage.textContent =
+      "Alertas de qualidade indisponíveis porque nenhuma rubric válida foi aplicada.";
+    elements.qualityHeuristicsMessages.innerHTML = "";
+    elements.qualityHeuristicsSignalList.innerHTML = "";
+    elements.qualityHeuristicsSignals.hidden = true;
+    return;
+  }
+
   const result = qualityHeuristics || {
     status: "pending",
     messages: ["Quality heuristics pending until backend validation runs."],

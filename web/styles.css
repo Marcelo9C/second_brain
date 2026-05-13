@@ -1333,7 +1333,7 @@ input[type="range"] {
 
 /* Localization Rubric Lab */
 .localization-workspace {
-  grid-template-columns: minmax(0, 1fr) minmax(520px, 640px);
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 520px);
 }
 
 .localization-workspace .conversation-panel,
@@ -1430,6 +1430,36 @@ input[type="range"] {
   min-width: 0;
   overflow-wrap: anywhere;
   font-size: 0.9rem;
+}
+
+.failed-generation-panel {
+  margin: 14px 0;
+  padding: 16px;
+  border: 1px solid rgba(220, 38, 38, 0.28);
+  border-left: 5px solid #dc2626;
+  border-radius: var(--radius);
+  background: #fff7ed;
+  box-shadow: 0 12px 28px rgba(220, 38, 38, 0.08);
+}
+
+.failed-generation-panel[hidden] {
+  display: none;
+}
+
+.failed-generation-panel h3 {
+  margin: 2px 0 8px;
+  color: #991b1b;
+  font-family: var(--font-heading);
+  font-size: 1.12rem;
+}
+
+.failed-generation-panel p {
+  margin: 8px 0 0;
+  color: var(--text);
+}
+
+.failed-generation-panel strong {
+  color: #7f1d1d;
 }
 
 .quality-heuristics-panel {
