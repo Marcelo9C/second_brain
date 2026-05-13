@@ -25,7 +25,12 @@ class RubricValidationService:
         contract = active_contract
         structure = self.structure_validation(rubrics, contract=contract)
         format_result = self.format_validation(rubrics, structure, contract=contract)
-        quality_heuristics = self.quality_heuristics.evaluate(payload, structure, format_result)
+        quality_heuristics = self.quality_heuristics.evaluate(
+            payload,
+            structure,
+            format_result,
+            contract=contract,
+        )
         quality = self.quality_validation(metadata, structure, format_result)
         approval = self.approval_readiness(payload, structure, format_result, quality, contract=contract)
 
@@ -192,15 +197,6 @@ class RubricValidationService:
                     blocking=True,
                 )
 
-        if contract:
-            rubrics = payload.get("rubrics")
-            if isinstance(rubrics, list):
-                if len(rubrics) != contract.expected_rubric_count:
-                    return self._result(
-                        "blocked",
-                        "Approval blocked: rubric count does not match active contract.",
-                        blocking=True,
-                    )
         return self._result("pass", "Rubrics ready for approval.")
 
     def assert_can_use_status(

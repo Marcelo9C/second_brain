@@ -5,6 +5,8 @@ import string
 from collections import Counter
 from typing import Any
 
+from app.schemas.rubric_contract import RubricContract
+
 
 class RubricQualityHeuristicService:
     MIN_RECOMMENDED_RUBRICS = 5
@@ -82,6 +84,8 @@ class RubricQualityHeuristicService:
         payload: dict[str, Any],
         structure: dict[str, Any],
         format_result: dict[str, Any],
+        *,
+        contract: RubricContract | None = None,
     ) -> dict[str, Any]:
         rubrics = payload.get("rubrics")
         if structure["status"] != "pass" or format_result["status"] != "pass":
@@ -91,6 +95,7 @@ class RubricQualityHeuristicService:
                 "messages": ["Quality heuristics pending until structure and format pass."],
                 "signals": {
                     "rubric_count": len(rubrics) if isinstance(rubrics, list) else 0,
+                    **self.analyze_contract_coverage([], contract, payload)["signals"],
                 },
             }
 
@@ -109,6 +114,7 @@ class RubricQualityHeuristicService:
             if isinstance(rubric.get("Rubric_dimensions"), str)
         ]
         dimension_distribution = dict(Counter(dimensions))
+        contract_coverage = self.analyze_contract_coverage(rubric_list, contract, payload)
         possible_overlap_count = self._possible_overlap_count(rubric_list)
         generic_rubric_count = self._generic_rubric_count(payload, rubric_list)
         unsupported_inference_count = self._unsupported_inference_count(payload, rubric_list)
@@ -138,12 +144,14 @@ class RubricQualityHeuristicService:
             contextual_cue_detected=contextual_cue_detected,
             category_coverage_signal=category_coverage_signal,
         )
-        if rubric_count < self.MIN_RECOMMENDED_RUBRICS:
+        messages.extend(contract_coverage["messages"])
+
+        if not contract and rubric_count < self.MIN_RECOMMENDED_RUBRICS:
             messages.append(
                 f"Only {rubric_count} rubrics generated; expected at least "
                 f"{self.MIN_RECOMMENDED_RUBRICS} for a complete evaluation set."
             )
-        if rubric_count > self.MAX_RECOMMENDED_RUBRICS:
+        if not contract and rubric_count > self.MAX_RECOMMENDED_RUBRICS:
             messages.append(
                 f"{rubric_count} rubrics generated; consider whether the set is too large to remain practical."
             )
@@ -203,6 +211,7 @@ class RubricQualityHeuristicService:
             "messages": messages,
             "signals": {
                 "rubric_count": rubric_count,
+                **contract_coverage["signals"],
                 "has_negative_rubric": has_negative_rubric,
                 "has_response_specific_rubric": has_response_specific_rubric,
                 "weight_distribution": numeric_weights,
@@ -218,6 +227,115 @@ class RubricQualityHeuristicService:
                 "category_coverage_signal": category_coverage_signal,
                 "dominant_dimension": dominant_dimension,
                 "dimension_distribution": dimension_distribution,
+            },
+        }
+
+    def analyze_contract_coverage(
+        self,
+        rubrics: list[dict[str, Any]],
+        contract: RubricContract | None,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        del payload
+        actual_rubric_count = len(rubrics)
+        dimensions = [
+            rubric.get("Rubric_dimensions")
+            for rubric in rubrics
+            if isinstance(rubric.get("Rubric_dimensions"), str)
+        ]
+        dimension_distribution = dict(Counter(dimensions))
+        used_dimensions = sorted(dimension_distribution)
+        numeric_weights = [
+            rubric.get("Rubrics_weight")
+            for rubric in rubrics
+            if isinstance(rubric.get("Rubrics_weight"), (int, float))
+            and not isinstance(rubric.get("Rubrics_weight"), bool)
+        ]
+        response_specific_count = sum(
+            1 for rubric in rubrics if rubric.get("is_response_specific") is True
+        )
+        universal_count = sum(
+            1 for rubric in rubrics if rubric.get("is_response_specific") is False
+        )
+        overrepresented_dimensions = [
+            dimension
+            for dimension, count in dimension_distribution.items()
+            if actual_rubric_count
+            and count / actual_rubric_count >= self.DIMENSION_CONCENTRATION_THRESHOLD
+        ]
+
+        if not contract:
+            return {
+                "messages": [],
+                "signals": {
+                    "expected_rubric_count": None,
+                    "actual_rubric_count": actual_rubric_count,
+                    "rubric_count_delta": None,
+                    "count_coverage_status": "not_applicable",
+                    "allowed_dimensions": [],
+                    "used_dimensions": used_dimensions,
+                    "missing_dimensions": [],
+                    "overrepresented_dimensions": sorted(overrepresented_dimensions),
+                    "dimension_coverage_ratio": None,
+                    "contract_weight_distribution": numeric_weights,
+                    "response_specific_count": response_specific_count,
+                    "universal_count": universal_count,
+                },
+            }
+
+        allowed_dimensions = list(contract.allowed_dimensions)
+        allowed_dimension_set = set(allowed_dimensions)
+        used_allowed_dimensions = [dimension for dimension in used_dimensions if dimension in allowed_dimension_set]
+        missing_dimensions = [
+            dimension for dimension in allowed_dimensions if dimension not in dimension_distribution
+        ]
+        dimension_coverage_ratio = (
+            len(used_allowed_dimensions) / len(allowed_dimensions)
+            if allowed_dimensions
+            else None
+        )
+        expected_rubric_count = contract.expected_rubric_count
+        rubric_count_delta = actual_rubric_count - expected_rubric_count
+        if actual_rubric_count < expected_rubric_count:
+            count_coverage_status = "under_generated"
+        elif actual_rubric_count > expected_rubric_count:
+            count_coverage_status = "over_generated"
+        else:
+            count_coverage_status = "matches_expected"
+
+        messages: list[str] = []
+        if count_coverage_status == "under_generated":
+            messages.append(
+                "Generated fewer rubrics than the active contract expects; coverage may be incomplete."
+            )
+        elif count_coverage_status == "over_generated":
+            messages.append(
+                "Generated more rubrics than the active contract expects; review whether the set remains practical."
+            )
+
+        if overrepresented_dimensions:
+            messages.append("Rubrics are concentrated in one dimension; coverage may be narrow.")
+
+        if missing_dimensions:
+            messages.append(
+                "Some allowed dimensions from the active contract are not represented in the generated rubrics."
+            )
+
+        return {
+            "messages": messages,
+            "signals": {
+                "expected_rubric_count": expected_rubric_count,
+                "actual_rubric_count": actual_rubric_count,
+                "rubric_count_delta": rubric_count_delta,
+                "count_coverage_status": count_coverage_status,
+                "allowed_dimensions": allowed_dimensions,
+                "used_dimensions": used_dimensions,
+                "missing_dimensions": missing_dimensions,
+                "overrepresented_dimensions": sorted(overrepresented_dimensions),
+                "dimension_coverage_ratio": dimension_coverage_ratio,
+                "contract_weight_distribution": numeric_weights,
+                "response_specific_count": response_specific_count,
+                "universal_count": universal_count,
             },
         }
 

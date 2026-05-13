@@ -1,5 +1,7 @@
 import unittest
+from copy import deepcopy
 
+from app.schemas.rubric_contract import RubricContract, RubricWeightPolicy
 from app.services.rubric_quality_heuristic_service import RubricQualityHeuristicService
 
 
@@ -43,6 +45,32 @@ def passing_layers(rubrics: list[dict]) -> tuple[dict, dict]:
     )
 
 
+def contract_model(
+    *,
+    dimensions: list[str] | None = None,
+    expected_count: int = 5,
+    negative_min: int = -6,
+) -> RubricContract:
+    return RubricContract(
+        allowed_dimensions=dimensions or [
+            "Cultural Understanding and Application",
+            "Natural Language Fluency",
+        ],
+        weight_policy=RubricWeightPolicy(
+            positive_min=1,
+            positive_max=10,
+            negative_min=negative_min,
+            negative_max=-1,
+            zero_allowed=False,
+            integer_only=True,
+        ),
+        expected_rubric_count=expected_count,
+        negative_rubric_policy={"mode": "recommended"},
+        requires_response_specific_when_context_exists=True,
+        quality_review_required=True,
+    )
+
+
 class RubricQualityHeuristicServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.service = RubricQualityHeuristicService()
@@ -50,6 +78,10 @@ class RubricQualityHeuristicServiceTest(unittest.TestCase):
     def evaluate(self, case_payload: dict) -> dict:
         structure, format_result = passing_layers(case_payload["rubrics"])
         return self.service.evaluate(case_payload, structure, format_result)
+
+    def evaluate_with_contract(self, case_payload: dict, contract: RubricContract) -> dict:
+        structure, format_result = passing_layers(case_payload["rubrics"])
+        return self.service.evaluate(case_payload, structure, format_result, contract=contract)
 
     def test_pending_when_structure_or_format_has_not_passed(self) -> None:
         report = self.service.evaluate(
@@ -357,6 +389,176 @@ class RubricQualityHeuristicServiceTest(unittest.TestCase):
 
         self.assertIn(report["status"], {"pass", "warning"})
         self.assertEqual(report["signals"]["rubric_count"], 5)
+
+    def test_contract_coverage_marks_chitchat_under_generated(self) -> None:
+        rubrics = [
+            rubric("Tone", "Assesses whether the response uses an appropriate tone.", 6),
+            rubric("Context", "Assesses whether the response uses the case context.", -4, response_specific=True),
+            rubric("Fluency", "Assesses whether the response reads naturally.", 5),
+        ]
+
+        report = self.evaluate_with_contract(
+            payload(category="Chitchat", rubrics=rubrics),
+            contract_model(expected_count=5),
+        )
+
+        self.assertEqual(report["signals"]["expected_rubric_count"], 5)
+        self.assertEqual(report["signals"]["actual_rubric_count"], 3)
+        self.assertEqual(report["signals"]["rubric_count_delta"], -2)
+        self.assertEqual(report["signals"]["count_coverage_status"], "under_generated")
+        self.assertIn("Generated fewer rubrics", " ".join(report["messages"]))
+
+    def test_contract_coverage_warns_for_writing_incomplete_count(self) -> None:
+        rubrics = [
+            rubric("Format", "Assesses whether requested structure is followed.", -7, response_specific=True),
+            rubric("Action Items", "Assesses whether action items are included.", -7, response_specific=True),
+            rubric("Tone", "Assesses whether the requested polite tone is maintained.", 7),
+        ]
+
+        report = self.evaluate_with_contract(
+            payload(category="Writing", rubrics=rubrics),
+            contract_model(expected_count=6, negative_min=-7),
+        )
+
+        self.assertEqual(report["status"], "warning")
+        self.assertFalse(report["blocking"])
+        self.assertEqual(report["signals"]["count_coverage_status"], "under_generated")
+        self.assertIn("coverage may be incomplete", " ".join(report["messages"]))
+
+    def test_contract_coverage_marks_knowledge_matching_expected_count(self) -> None:
+        rubrics = [
+            rubric(f"Knowledge Criterion {index}", "Assesses a distinct factual quality concern.", 5)
+            for index in range(6)
+        ]
+
+        report = self.evaluate_with_contract(
+            payload(category="Knowledge", rubrics=rubrics),
+            contract_model(
+                dimensions=["Facts and Local Knowledge", "Cultural Understanding and Application"],
+                expected_count=6,
+                negative_min=-10,
+            ),
+        )
+
+        self.assertEqual(report["signals"]["expected_rubric_count"], 6)
+        self.assertEqual(report["signals"]["actual_rubric_count"], 6)
+        self.assertEqual(report["signals"]["rubric_count_delta"], 0)
+        self.assertEqual(report["signals"]["count_coverage_status"], "matches_expected")
+
+    def test_contract_coverage_reports_overrepresented_dimensions(self) -> None:
+        rubrics = [
+            rubric("Tone", "Assesses whether the response uses an appropriate tone.", 6),
+            rubric("Fluency", "Assesses whether the response reads naturally.", 6),
+            rubric("Clarity", "Assesses whether the response is clear and direct.", 5),
+            rubric("Brevity", "Assesses whether the response is appropriately concise.", 5),
+            rubric("Penalty", "Penalizes unsupported or generic response details.", -3),
+        ]
+
+        report = self.evaluate_with_contract(
+            payload(rubrics=rubrics),
+            contract_model(expected_count=5),
+        )
+
+        self.assertEqual(report["signals"]["overrepresented_dimensions"], ["Natural Language Fluency"])
+        self.assertIn("coverage may be narrow", " ".join(report["messages"]))
+
+    def test_contract_coverage_reports_missing_dimensions_without_blocking(self) -> None:
+        rubrics = [
+            rubric("Tone", "Assesses whether the response uses an appropriate tone.", 6),
+            rubric("Fluency", "Assesses whether the response reads naturally.", 6),
+            rubric("Penalty", "Penalizes unsupported or generic response details.", -3),
+        ]
+
+        report = self.evaluate_with_contract(
+            payload(rubrics=rubrics),
+            contract_model(expected_count=3),
+        )
+
+        self.assertEqual(
+            report["signals"]["missing_dimensions"],
+            ["Cultural Understanding and Application"],
+        )
+        self.assertLess(report["signals"]["dimension_coverage_ratio"], 1)
+        self.assertFalse(report["blocking"])
+        self.assertIn("not represented", " ".join(report["messages"]))
+
+    def test_contract_coverage_marks_over_generated_without_cutting_rubrics(self) -> None:
+        rubrics = [
+            rubric(f"Criterion {index}", "Assesses a distinct synthetic evaluation concern.", 5)
+            for index in range(7)
+        ]
+
+        report = self.evaluate_with_contract(
+            payload(rubrics=rubrics),
+            contract_model(expected_count=5),
+        )
+
+        self.assertEqual(report["signals"]["actual_rubric_count"], 7)
+        self.assertEqual(report["signals"]["count_coverage_status"], "over_generated")
+        self.assertEqual(len(rubrics), 7)
+
+    def test_contract_coverage_does_not_mutate_original_rubrics(self) -> None:
+        rubrics = [
+            rubric("Tone", "Assesses whether the response uses an appropriate tone.", 6),
+            rubric("Penalty", "Penalizes unsupported or generic response details.", -3),
+            rubric("Context", "Assesses whether case-specific context is handled.", 5, response_specific=True),
+        ]
+        original = deepcopy(rubrics)
+
+        self.evaluate_with_contract(
+            payload(rubrics=rubrics),
+            contract_model(expected_count=5),
+        )
+
+        self.assertEqual(rubrics, original)
+
+    def test_contract_coverage_keeps_quality_heuristics_non_blocking(self) -> None:
+        rubrics = [
+            rubric("Tone", "Assesses whether the response uses an appropriate tone.", 6),
+            rubric("Penalty", "Penalizes unsupported or generic response details.", -3),
+            rubric("Context", "Assesses whether case-specific context is handled.", 5),
+        ]
+
+        report = self.evaluate_with_contract(
+            payload(rubrics=rubrics),
+            contract_model(expected_count=6),
+        )
+
+        self.assertEqual(report["status"], "warning")
+        self.assertFalse(report["blocking"])
+
+    def test_recommended_negative_policy_warning_does_not_block(self) -> None:
+        rubrics = [
+            rubric("Tone", "Assesses whether the response uses an appropriate tone.", 6),
+            rubric("Fluency", "Assesses whether the response reads naturally.", 6),
+            rubric("Context", "Assesses whether case-specific context is handled.", 5, response_specific=True),
+            rubric("Clarity", "Assesses whether the response is clear and direct.", 5),
+            rubric("Brevity", "Assesses whether the response is appropriately concise.", 4),
+        ]
+
+        report = self.evaluate_with_contract(
+            payload(rubrics=rubrics),
+            contract_model(expected_count=5),
+        )
+
+        self.assertIn("No negative rubric found", " ".join(report["messages"]))
+        self.assertFalse(report["signals"]["has_negative_rubric"])
+        self.assertFalse(report["blocking"])
+
+    def test_contract_coverage_never_creates_fallback_rubrics(self) -> None:
+        rubrics = [
+            rubric("Tone", "Assesses whether the response uses an appropriate tone.", 6),
+            rubric("Penalty", "Penalizes unsupported or generic response details.", -3),
+            rubric("Context", "Assesses whether case-specific context is handled.", 5),
+        ]
+
+        report = self.evaluate_with_contract(
+            payload(rubrics=rubrics),
+            contract_model(expected_count=6),
+        )
+
+        self.assertEqual(report["signals"]["actual_rubric_count"], 3)
+        self.assertEqual(len(rubrics), 3)
 
 
 if __name__ == "__main__":

@@ -136,6 +136,21 @@ class RubricValidationServiceTest(unittest.TestCase):
         self.assertEqual(report["qualityValidation"]["status"], "pass")
         self.assertEqual(report["approvalReadiness"]["status"], "pass")
 
+    def test_contract_expected_count_is_warning_not_approval_block(self) -> None:
+        payload = valid_payload()
+        payload["metadata"] = {"human_quality_reviewed": True}
+
+        report = self.service.validate_case(
+            payload,
+            active_contract=contract_model(negative_min=-7, count=5),
+        )
+
+        self.assertEqual(report["qualityHeuristics"]["status"], "warning")
+        self.assertEqual(report["qualityHeuristics"]["signals"]["count_coverage_status"], "under_generated")
+        self.assertFalse(report["qualityHeuristics"]["blocking"])
+        self.assertEqual(report["qualityValidation"]["status"], "pass")
+        self.assertEqual(report["approvalReadiness"]["status"], "pass")
+
     def test_quality_is_pending_by_default(self) -> None:
         report = self.service.validate_case(valid_payload())
 
