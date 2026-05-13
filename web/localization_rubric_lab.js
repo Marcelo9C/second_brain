@@ -855,6 +855,152 @@ async function loadCases() {
   renderHistory();
 }
 
+function historyItemPresentation(item) {
+  const metadata = item?.metadata && typeof item.metadata === "object" ? item.metadata : {};
+  const generation = metadata.rubric_generation && typeof metadata.rubric_generation === "object"
+    ? metadata.rubric_generation
+    : {};
+  const validationReport = metadata.validation_report && typeof metadata.validation_report === "object"
+    ? metadata.validation_report
+    : {};
+  const rubrics = Array.isArray(item?.rubrics) ? item.rubrics : [];
+  const rubricCount = rubrics.length;
+  const hasRubrics = rubricCount > 0;
+  const category = item?.category || metadata.template_scaffold?.category || "Categoria n/d";
+  const templateName = item?.template_name || metadata.template_scaffold?.template_name || "template n/d";
+  const rubricLabel = `${rubricCount} ${rubricCount === 1 ? "rubric" : "rubrics"}`;
+  const caseSummary = item?.prompt ? item.prompt : "Sem caso preenchido";
+  const qualityStatus = validationReport.qualityValidation?.status;
+  const pendingReviewDescription =
+    qualityStatus === "pending" || qualityStatus === undefined
+      ? "Revisão humana pendente."
+      : "Revisão humana pendente.";
+
+  const build = ({
+    title,
+    subtitle,
+    badge,
+    severity,
+    description,
+    isRealRubricArtifact = false,
+    canReview = false,
+    canApprove = false,
+    canExport = false,
+  }) => ({
+    title,
+    subtitle,
+    badge,
+    severity,
+    description,
+    caseSummary,
+    isRealRubricArtifact,
+    canReview,
+    canApprove,
+    canExport,
+  });
+
+  if (item?.status === "exported") {
+    return build({
+      title: "Rubrics exportadas",
+      subtitle: `${category} / ${rubricLabel}`,
+      badge: "exported",
+      severity: "exported",
+      description: "Artefato exportado.",
+      isRealRubricArtifact: hasRubrics,
+    });
+  }
+
+  if (item?.status === "approved") {
+    return build({
+      title: "Rubrics aprovadas",
+      subtitle: `${category} / ${rubricLabel}`,
+      badge: "approved",
+      severity: "approved",
+      description: "Prontas para exportação.",
+      isRealRubricArtifact: hasRubrics,
+      canExport: hasRubrics,
+    });
+  }
+
+  if (item?.status === "reviewed" || metadata.human_quality_reviewed === true) {
+    return build({
+      title: "Rubrics revisadas",
+      subtitle: `${category} / ${rubricLabel}`,
+      badge: "reviewed",
+      severity: "reviewed",
+      description: "Revisadas por humano; aprovação pendente.",
+      isRealRubricArtifact: hasRubrics,
+      canApprove: hasRubrics,
+    });
+  }
+
+  if (generation.validation_status === "failed") {
+    return build({
+      title: "Geração descartada",
+      subtitle: `${category} / ${generation.generation_failure_type || "resultado descartado"}`,
+      badge: "falhou",
+      severity: "failed",
+      description: "Nenhuma rubric foi aplicada.",
+      isRealRubricArtifact: false,
+    });
+  }
+
+  if (hasRubrics && generation.validation_status === "valid") {
+    return build({
+      title: "Rubrics geradas por IA",
+      subtitle: `${category} / ${rubricLabel}`,
+      badge: "IA",
+      severity: "ai",
+      description: pendingReviewDescription,
+      isRealRubricArtifact: true,
+      canReview: true,
+    });
+  }
+
+  if (hasRubrics) {
+    return build({
+      title: "Draft manual",
+      subtitle: `${category} / ${rubricLabel}`,
+      badge: "draft",
+      severity: "draft",
+      description: "Rubrics editadas manualmente; revisão pendente.",
+      isRealRubricArtifact: true,
+      canReview: true,
+    });
+  }
+
+  if (metadata.template_scaffold && !hasRubrics) {
+    return build({
+      title: "Template scaffold",
+      subtitle: `${category} / ${templateName}`,
+      badge: "scaffold",
+      severity: "scaffold",
+      description: "Não contém rubrics reais aplicadas.",
+      isRealRubricArtifact: false,
+    });
+  }
+
+  if (!hasRubrics) {
+    return build({
+      title: "Draft vazio",
+      subtitle: `${category} / sem rubrics`,
+      badge: "vazio",
+      severity: "empty",
+      description: "Sem rubrics no editor.",
+      isRealRubricArtifact: false,
+    });
+  }
+
+  return build({
+    title: "Artefato desconhecido",
+    subtitle: `${category} / ${templateName}`,
+    badge: "unknown",
+    severity: "unknown",
+    description: "Estado do artefato nao identificado.",
+    isRealRubricArtifact: false,
+  });
+}
+
 function renderHistory() {
   elements.rubricHistory.innerHTML = "";
 
@@ -867,25 +1013,47 @@ function renderHistory() {
   }
 
   for (const record of state.cases) {
+    const presentation = historyItemPresentation(record);
     const item = document.createElement("button");
     item.type = "button";
     item.className = "history-item";
+    item.classList.add(`history-item--${presentation.severity}`);
+    item.dataset.realRubricArtifact = presentation.isRealRubricArtifact ? "true" : "false";
+    item.dataset.canReview = presentation.canReview ? "true" : "false";
+    item.dataset.canApprove = presentation.canApprove ? "true" : "false";
+    item.dataset.canExport = presentation.canExport ? "true" : "false";
     if (record.id === state.selectedCaseId) {
       item.classList.add("active");
     }
 
+    const header = document.createElement("div");
+    header.className = "history-item-header";
+
     const title = document.createElement("strong");
-    title.textContent = `${record.category} | ${record.status}`;
+    title.textContent = presentation.title;
 
-    const meta = document.createElement("div");
-    meta.className = "history-meta";
-    meta.textContent = `${record.template_name} | ${formatDate(record.updated_at)}`;
+    const badge = document.createElement("span");
+    badge.className = `history-badge history-badge--${presentation.severity}`;
+    badge.textContent = presentation.badge;
+    header.append(title, badge);
 
-    const prompt = document.createElement("div");
-    prompt.className = "history-meta";
-    prompt.textContent = record.prompt || "Sem prompt";
+    const subtitle = document.createElement("div");
+    subtitle.className = "history-meta";
+    subtitle.textContent = presentation.subtitle;
 
-    item.append(title, meta, prompt);
+    const description = document.createElement("div");
+    description.className = "history-description";
+    description.textContent = presentation.description;
+
+    const caseSummary = document.createElement("div");
+    caseSummary.className = "history-meta";
+    caseSummary.textContent = presentation.caseSummary;
+
+    const updatedAt = document.createElement("div");
+    updatedAt.className = "history-meta";
+    updatedAt.textContent = formatDate(record.updated_at);
+
+    item.append(header, subtitle, description, caseSummary, updatedAt);
     item.addEventListener("click", async () => {
       const full = await fetchJson(`/api/localization/rubric-cases/${record.id}`);
       fillCase(full);
