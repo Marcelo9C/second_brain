@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.repositories.localization_repository import LocalizationRubricCaseRepository
+from app.schemas.rubric_contract import parse_template_contract
 from app.services.rubric_validation_service import RubricValidationService
 
 
@@ -52,16 +53,19 @@ class LocalizationService:
         if not template_path.exists():
             raise FileNotFoundError(f"Template not found: {template_path}")
 
-        rubrics = json.loads(template_path.read_text(encoding="utf-8"))
+        template_contract = parse_template_contract(
+            json.loads(template_path.read_text(encoding="utf-8"))
+        )
         return {
-            "locale": self._display_locale(locale),
-            "category": category,
-            "template_name": template_name,
-            "template_version": "v1",
+            "locale": template_contract.locale,
+            "category": template_contract.category,
+            "template_name": template_contract.template_name,
+            "template_version": template_contract.template_version,
             "artifact_type": "template_scaffold",
             "rubrics_are_final": False,
             "message": "Template scaffold loaded. Fill the real case and review before approval.",
-            "rubrics": rubrics,
+            "contract": template_contract.contract.model_dump(),
+            "rubrics": template_contract.rubric_slots,
         }
 
     def create_case(self, payload: dict[str, Any]) -> dict[str, Any]:

@@ -5,7 +5,8 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.api.routes import localization as localization_routes
-from app.schemas.localization import RubricCaseCreate, RubricCaseUpdate
+from app.schemas.localization import RubricCaseCreate, RubricCaseUpdate, validate_rubric_payload
+from app.schemas.rubric_contract import RubricContract, RubricWeightPolicy
 
 
 class BlockingService:
@@ -49,6 +50,63 @@ class LocalizationSchemaTest(unittest.TestCase):
 
         self.assertEqual(error.exception.status_code, 400)
         self.assertIn("approval readiness", error.exception.detail)
+
+    def test_validate_rubric_payload_uses_received_contract(self) -> None:
+        contract = RubricContract(
+            allowed_dimensions=["Facts and Local Knowledge"],
+            weight_policy=RubricWeightPolicy(
+                positive_min=1,
+                positive_max=10,
+                negative_min=-10,
+                negative_max=-1,
+                zero_allowed=False,
+                integer_only=True,
+            ),
+            expected_rubric_count=1,
+            requires_negative_rubric=True,
+            requires_response_specific_when_context_exists=True,
+            quality_review_required=True,
+        )
+        rubrics = [
+            {
+                "Rubric_dimensions": "Facts and Local Knowledge",
+                "Rubric_title": "Factual Accuracy",
+                "Rubrics_description": "The response avoids fabricated or unsupported information.",
+                "Rubrics_weight": -10,
+                "is_response_specific": False,
+            }
+        ]
+
+        self.assertEqual(validate_rubric_payload(rubrics, contract=contract), rubrics)
+
+    def test_validate_rubric_payload_rejects_zero_with_contract(self) -> None:
+        contract = RubricContract(
+            allowed_dimensions=["Natural Language Fluency"],
+            weight_policy=RubricWeightPolicy(
+                positive_min=1,
+                positive_max=10,
+                negative_min=-6,
+                negative_max=-1,
+                zero_allowed=False,
+                integer_only=True,
+            ),
+            expected_rubric_count=1,
+            requires_negative_rubric=False,
+            requires_response_specific_when_context_exists=True,
+            quality_review_required=True,
+        )
+        rubrics = [
+            {
+                "Rubric_dimensions": "Natural Language Fluency",
+                "Rubric_title": "Synthetic",
+                "Rubrics_description": "Synthetic rubric description for schema validation.",
+                "Rubrics_weight": 0,
+                "is_response_specific": False,
+            }
+        ]
+
+        with self.assertRaisesRegex(ValueError, "cannot be zero"):
+            validate_rubric_payload(rubrics, contract=contract)
 
 
 if __name__ == "__main__":

@@ -4,17 +4,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.rubric_contract import (
+    DEFAULT_REQUIRED_RUBRIC_FIELDS,
+    RubricContract,
+)
+
 
 LocalizationCategory = Literal["Writing", "Chitchat", "Knowledge"]
 RubricCaseStatus = Literal["draft", "reviewed", "approved", "exported"]
 
-REQUIRED_RUBRIC_FIELDS = {
-    "Rubric_dimensions",
-    "Rubric_title",
-    "Rubrics_description",
-    "Rubrics_weight",
-    "is_response_specific",
-}
+REQUIRED_RUBRIC_FIELDS = set(DEFAULT_REQUIRED_RUBRIC_FIELDS)
 
 ACCEPTED_RUBRIC_DIMENSIONS = {
     "Cultural Understanding and Application",
@@ -24,7 +23,10 @@ ACCEPTED_RUBRIC_DIMENSIONS = {
 }
 
 
-def validate_rubric_payload(rubrics: Any) -> Any:
+def validate_rubric_payload(rubrics: Any, contract: RubricContract | None = None) -> Any:
+    if contract is not None:
+        return contract.validate_rubrics(rubrics)
+
     if not isinstance(rubrics, list) or not rubrics:
         raise ValueError("rubrics must be a non-empty JSON array.")
 
@@ -63,6 +65,7 @@ class LocalizationTemplateResponse(BaseModel):
     artifact_type: str = "template_scaffold"
     rubrics_are_final: bool = False
     message: str | None = None
+    contract: dict[str, Any] | None = None
     rubrics: list[dict[str, Any]]
 
 

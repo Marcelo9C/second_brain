@@ -1,37 +1,68 @@
-[
-  {
-    "Rubric_dimensions": "Natural Language Fluency",
-    "Rubric_title": "[Natural Conversational Tone]",
-    "Rubrics_description": "The response sounds natural, conversational, and human-like rather than robotic, scripted, or excessively formal.",
-    "Rubrics_weight": 8,
-    "is_response_specific": false
+{
+  "template_name": "chitchat_template.json",
+  "template_version": "1.0",
+  "locale": "pt-BR",
+  "category": "Chitchat",
+  "contract": {
+    "allowed_dimensions": [
+      "Cultural Understanding and Application",
+      "Natural Language Fluency"
+    ],
+    "weight_policy": {
+      "positive_min": 1,
+      "positive_max": 10,
+      "negative_min": -6,
+      "negative_max": -1,
+      "zero_allowed": false,
+      "integer_only": true
+    },
+    "expected_rubric_count": 5,
+    "requires_negative_rubric": true,
+    "requires_response_specific_when_context_exists": true,
+    "quality_review_required": true,
+    "required_fields": [
+      "Rubric_dimensions",
+      "Rubric_title",
+      "Rubrics_description",
+      "Rubrics_weight",
+      "is_response_specific"
+    ]
   },
-  {
-    "Rubric_dimensions": "Cultural Understanding and Application",
-    "Rubric_title": "[Emotional Tone Alignment]",
-    "Rubrics_description": "The response appropriately matches the emotional tone, mood, and social context of the user's message.",
-    "Rubrics_weight": 8,
-    "is_response_specific": false
-  },
-  {
-    "Rubric_dimensions": "Natural Language Fluency",
-    "Rubric_title": "[Localized Informal Language]",
-    "Rubrics_description": "The response uses vocabulary, phrasing, slang, or conversational structures that feel natural for the target locale and audience.",
-    "Rubrics_weight": 7,
-    "is_response_specific": false
-  },
-  {
-    "Rubric_dimensions": "Cultural Understanding and Application",
-    "Rubric_title": "[Empathy and Social Awareness]",
-    "Rubrics_description": "The response demonstrates empathy, emotional awareness, or socially appropriate reactions when relevant.",
-    "Rubrics_weight": 7,
-    "is_response_specific": false
-  },
-  {
-    "Rubric_dimensions": "Natural Language Fluency",
-    "Rubric_title": "[Robotic or Scripted Tone]",
-    "Rubrics_description": "The response sounds overly scripted, generic, repetitive, or assistant-like instead of naturally conversational.",
-    "Rubrics_weight": -6,
-    "is_response_specific": false
-  }
-]
+  "rubric_slots": [
+    {
+      "Rubric_dimensions": "Natural Language Fluency",
+      "Rubric_title": "[Natural Conversational Tone]",
+      "Rubrics_description": "The response sounds natural, conversational, and human-like rather than robotic, scripted, or excessively formal.",
+      "Rubrics_weight": 8,
+      "is_response_specific": false
+    },
+    {
+      "Rubric_dimensions": "Cultural Understanding and Application",
+      "Rubric_title": "[Emotional Tone Alignment]",
+      "Rubrics_description": "The response appropriately matches the emotional tone, mood, and social context of the user's message.",
+      "Rubrics_weight": 8,
+      "is_response_specific": false
+    },
+    {
+      "Rubric_dimensions": "Natural Language Fluency",
+      "Rubric_title": "[Localized Informal Language]",
+      "Rubrics_description": "The response uses vocabulary, phrasing, slang, or conversational structures that feel natural for the target locale and audience.",
+      "Rubrics_weight": 7,
+      "is_response_specific": false
+    },
+    {
+      "Rubric_dimensions": "Cultural Understanding and Application",
+      "Rubric_title": "[Empathy and Social Awareness]",
+      "Rubrics_description": "The response demonstrates empathy, emotional awareness, or socially appropriate reactions when relevant.",
+      "Rubrics_weight": 7,
+      "is_response_specific": false
+    },
+    {
+      "Rubric_dimensions": "Natural Language Fluency",
+      "Rubric_title": "[Robotic or Scripted Tone]",
+      "Rubrics_description": "The response sounds overly scripted, generic, repetitive, or assistant-like instead of naturally conversational.",
+      "Rubrics_weight": -6,
+      "is_response_specific": false
+    }
+  ]
+}
