@@ -163,17 +163,47 @@
             </div>
 
             <div class="editor-toolbar" aria-label="Acoes do editor de rubrics">
-              <button id="generate-rubrics" type="button">Gerar com IA</button>
-              <button id="copy-json" class="ghost" type="button">Copiar JSON</button>
-              <button id="save-case" type="button">Salvar draft</button>
-              <button id="mark-reviewed" class="ghost" type="button">Marcar reviewed</button>
-              <button id="mark-approved" class="ghost" type="button">Aprovar</button>
+              <div class="toolbar-group primary-action">
+                <button id="generate-rubrics" class="primary-action-button" type="button">Gerar com IA</button>
+              </div>
+              <div class="toolbar-group secondary-actions">
+                <button id="copy-json" class="ghost" type="button">Copiar JSON</button>
+                <button id="save-case" class="ghost" type="button">Salvar draft</button>
+              </div>
+              <div class="toolbar-group workflow-actions">
+                <button id="mark-reviewed" class="ghost workflow-button" type="button">Marcar reviewed</button>
+                <button id="mark-approved" class="ghost workflow-button" type="button">Aprovar</button>
+              </div>
             </div>
-
-            <textarea id="rubrics-editor" class="json-editor" spellcheck="false"></textarea>
 
             <div id="next-step" class="next-step">
               Preencha o caso e gere rubrics, ou escreva/copie rubrics manualmente.
+            </div>
+
+            <div class="rubrics-workbench" aria-label="Area de edicao e revisao de rubrics">
+              <section class="rubric-preview-panel" aria-labelledby="rubric-cards-title">
+                <div class="workbench-panel-header">
+                  <div>
+                    <span class="panel-kicker">Rubrics</span>
+                    <h3 id="rubric-cards-title">Cards de revisao</h3>
+                  </div>
+                  <span class="panel-hint">visao de trabalho</span>
+                </div>
+                <div id="rubric-cards" class="rubric-cards">
+                  <div class="empty-state compact">Nenhuma rubric real no editor.</div>
+                </div>
+              </section>
+
+              <section class="json-editor-panel" aria-labelledby="rubrics-editor-title">
+                <div class="workbench-panel-header">
+                  <div>
+                    <span class="panel-kicker">JSON</span>
+                    <h3 id="rubrics-editor-title">Editor</h3>
+                  </div>
+                  <span class="panel-hint">fonte editavel</span>
+                </div>
+                <textarea id="rubrics-editor" class="json-editor" spellcheck="false"></textarea>
+              </section>
             </div>
 
             <div id="validation-output" class="embedding-summary">
@@ -237,6 +267,8 @@
         </section>
       </main>
     </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
     <script src="/localization_rubric_lab.js" defer></script>
   </body>

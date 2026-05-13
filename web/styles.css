@@ -417,18 +417,87 @@ input:checked + .toggle-bg .toggle-circle {
 }
 
 .editor-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 12px 0;
-  padding: 12px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin: 14px 0;
+  padding: 14px;
   border: 1px solid rgba(15, 23, 42, 0.08);
-  background: #f8fafc;
+  background: linear-gradient(180deg, #f8fafc 0%, #eef6f3 100%);
   border-radius: var(--radius);
 }
 
 .editor-toolbar button {
   padding: 11px 15px;
+}
+
+.toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.primary-action {
+  width: 100%;
+}
+
+.secondary-actions,
+.workflow-actions {
+  width: 100%;
+}
+
+.secondary-actions button,
+.workflow-actions button {
+  flex: 1 1 150px;
+}
+
+.workflow-actions {
+  padding-top: 10px;
+  border-top: 1px solid rgba(15, 23, 42, 0.1);
+}
+
+.primary-action-button {
+  width: 100%;
+  min-width: 0;
+  background: var(--accent);
+  color: white;
+  border-color: transparent;
+  box-shadow: var(--shadow-green);
+}
+
+.editor-toolbar .ghost {
+  background: white;
+  border-color: rgba(15, 23, 42, 0.1);
+  color: var(--text);
+  box-shadow: none;
+}
+
+.editor-toolbar .ghost:hover {
+  border-color: rgba(0, 186, 110, 0.35);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.07);
+}
+
+.primary-action-button.generating {
+  opacity: 0.96;
+  cursor: wait;
+}
+
+.primary-action-button.generating::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: white;
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: spin 0.8s linear infinite;
+}
+
+.workflow-button {
+  background: white;
 }
 
 .state-summary,
@@ -500,6 +569,200 @@ input:checked + .toggle-bg .toggle-circle {
 
 .audit-details[open] summary {
   margin-bottom: 10px;
+}
+
+.rubrics-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  margin: 16px 0;
+  align-items: stretch;
+}
+
+.rubric-preview-panel,
+.json-editor-panel {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: var(--radius);
+  background: #fbfdff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
+}
+
+.json-editor-panel {
+  background: #08111f;
+  border-color: rgba(15, 23, 42, 0.22);
+}
+
+.json-editor-panel .json-editor {
+  min-height: 360px;
+}
+
+.workbench-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.workbench-panel-header h3 {
+  margin: 2px 0 0;
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+}
+
+.json-editor-panel .workbench-panel-header h3,
+.json-editor-panel .panel-kicker {
+  color: #e5f2ff;
+}
+
+.panel-kicker,
+.panel-hint {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+.panel-kicker {
+  color: var(--accent-strong);
+}
+
+.panel-hint {
+  color: var(--muted);
+}
+
+.json-editor-panel .panel-hint {
+  color: #90a4bd;
+}
+
+.rubric-cards {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.rubric-card {
+  padding: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: var(--radius);
+  background: white;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+}
+
+.rubric-card.ok {
+  border-color: rgba(0, 186, 110, 0.2);
+}
+
+.rubric-card.has-issues {
+  border-color: rgba(255, 94, 58, 0.3);
+  background: rgba(255, 94, 58, 0.04);
+}
+
+.rubric-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.rubric-card h3 {
+  margin: 4px 0 0;
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.rubric-dimension {
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.rubric-weight {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: var(--panel-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.rubric-description {
+  margin: 10px 0;
+  color: var(--text);
+}
+
+.rubric-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rubric-card-meta span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.rubric-issues {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  color: #991b1b;
+}
+
+.empty-state.compact {
+  min-height: 84px;
+}
+
+.toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1500;
+  max-width: min(420px, calc(100vw - 48px));
+  padding: 13px 16px;
+  border-radius: var(--radius);
+  background: #111827;
+  color: white;
+  font-weight: 800;
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.28);
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast.ok {
+  background: #047857;
+}
+
+.toast.warning {
+  background: #b45309;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 1180px) {
+  .rubric-cards {
+    max-height: none;
+  }
 }
 
 .history-list {
@@ -1070,7 +1333,7 @@ input[type="range"] {
 
 /* Localization Rubric Lab */
 .localization-workspace {
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 520px);
+  grid-template-columns: minmax(0, 1fr) minmax(520px, 640px);
 }
 
 .localization-workspace .conversation-panel,

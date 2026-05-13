@@ -49,6 +49,7 @@ const elements = {
   goldenResponse: document.querySelector("#golden-response"),
   evaluatorNotes: document.querySelector("#evaluator-notes"),
   rubricsEditor: document.querySelector("#rubrics-editor"),
+  rubricCards: document.querySelector("#rubric-cards"),
   jsonStatus: document.querySelector("#json-status"),
   editorStateSummary: document.querySelector("#editor-state-summary"),
   validationOutput: document.querySelector("#validation-output"),
@@ -68,6 +69,7 @@ const elements = {
   exportJsonl: document.querySelector("#export-jsonl"),
   exportCsv: document.querySelector("#export-csv"),
   exportOutput: document.querySelector("#export-output"),
+  toast: document.querySelector("#toast"),
 };
 
 async function fetchJson(path, options = {}) {
@@ -112,6 +114,15 @@ function setStateSummary(element, kind, title, message) {
   const span = document.createElement("span");
   span.textContent = message;
   element.append(strong, span);
+}
+
+function showToast(message, kind = "neutral") {
+  elements.toast.className = `toast show ${kind}`;
+  elements.toast.textContent = message;
+  clearTimeout(showToast.timeoutId);
+  showToast.timeoutId = setTimeout(() => {
+    elements.toast.className = "toast";
+  }, 2800);
 }
 
 function parseChatHistory() {
@@ -580,7 +591,9 @@ async function generateRubrics() {
   }
 
   elements.generateRubrics.disabled = true;
-  elements.generateRubrics.textContent = "Gerando...";
+  elements.generateRubrics.classList.add("generating");
+  elements.generateRubrics.setAttribute("aria-busy", "true");
+  elements.generateRubrics.textContent = "Gerando rubrics...";
   elements.aiWarning.textContent = "Gerando rubrics via IA. Revise antes de aprovar.";
 
   try {
@@ -630,6 +643,8 @@ async function generateRubrics() {
     renderValidation();
   } finally {
     elements.generateRubrics.disabled = false;
+    elements.generateRubrics.classList.remove("generating");
+    elements.generateRubrics.removeAttribute("aria-busy");
     elements.generateRubrics.textContent = "Gerar com IA";
   }
 }
@@ -668,9 +683,10 @@ async function copyEditorJson() {
     document.execCommand("copy");
   }
 
-  elements.validationOutput.textContent = validJson
+  const message = validJson
     ? "JSON copiado."
-    : "Texto copiado. Atencao: o conteudo nao e JSON valido.";
+    : "Texto copiado. Atencao: nao e JSON valido.";
+  showToast(message, validJson ? "ok" : "warning");
 }
 
 function validateRubrics() {
@@ -866,9 +882,111 @@ function renderValidation() {
   elements.validationOutput.textContent = result.message;
   state.lastValidationReport = result.report;
   renderEditorState(result);
+  renderRubricCards(result.rubrics);
   renderValidationLayers(result.report);
   updateActionStates(result.report);
   return result;
+}
+
+function renderRubricCards(rubrics) {
+  elements.rubricCards.innerHTML = "";
+
+  if (!Array.isArray(rubrics)) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state compact";
+    empty.textContent = "Sem cards: o JSON precisa ser uma lista de rubrics.";
+    elements.rubricCards.appendChild(empty);
+    return;
+  }
+
+  if (!rubrics.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state compact";
+    empty.textContent = "Nenhuma rubric real no editor.";
+    elements.rubricCards.appendChild(empty);
+    return;
+  }
+
+  for (const [index, rubric] of rubrics.entries()) {
+    const issues = rubricIssues(rubric);
+    const card = document.createElement("article");
+    card.className = `rubric-card ${issues.length ? "has-issues" : "ok"}`;
+
+    const header = document.createElement("div");
+    header.className = "rubric-card-header";
+
+    const titleBox = document.createElement("div");
+    const dimension = document.createElement("span");
+    dimension.className = "rubric-dimension";
+    dimension.textContent = rubric?.Rubric_dimensions || "Dimensao ausente";
+    const title = document.createElement("h3");
+    title.textContent = rubric?.Rubric_title || `Rubric ${index + 1}`;
+    titleBox.append(dimension, title);
+
+    const weight = document.createElement("div");
+    weight.className = "rubric-weight";
+    weight.textContent = `Peso ${rubric?.Rubrics_weight ?? "n/d"}`;
+    header.append(titleBox, weight);
+
+    const description = document.createElement("p");
+    description.className = "rubric-description";
+    description.textContent = rubric?.Rubrics_description || "Descricao ausente.";
+
+    const meta = document.createElement("div");
+    meta.className = "rubric-card-meta";
+    const specific = document.createElement("span");
+    specific.textContent = rubric?.is_response_specific === true ? "response-specific" : "universal";
+    const status = document.createElement("span");
+    status.textContent = issues.length ? "problemas detectados" : "estrutura OK";
+    meta.append(specific, status);
+
+    card.append(header, description, meta);
+    if (issues.length) {
+      const list = document.createElement("ul");
+      list.className = "rubric-issues";
+      for (const issue of issues) {
+        const item = document.createElement("li");
+        item.textContent = issue;
+        list.appendChild(item);
+      }
+      card.appendChild(list);
+    }
+
+    elements.rubricCards.appendChild(card);
+  }
+}
+
+function rubricIssues(rubric) {
+  const issues = [];
+  if (!rubric || typeof rubric !== "object" || Array.isArray(rubric)) {
+    return ["Item precisa ser um objeto."];
+  }
+  const missing = REQUIRED_RUBRIC_FIELDS.filter((field) => !(field in rubric));
+  if (missing.length) {
+    issues.push(`Campos faltando: ${missing.join(", ")}.`);
+  }
+  if (!ACCEPTED_RUBRIC_DIMENSIONS.has(rubric.Rubric_dimensions)) {
+    issues.push("Dimensao nao aceita.");
+  }
+  if (typeof rubric.Rubric_title !== "string" || !rubric.Rubric_title.trim()) {
+    issues.push("Titulo ausente.");
+  }
+  if (typeof rubric.Rubrics_description !== "string" || rubric.Rubrics_description.trim().length < 20) {
+    issues.push("Descricao curta ou ausente.");
+  }
+  if (
+    typeof rubric.Rubrics_weight !== "number" ||
+    Number.isNaN(rubric.Rubrics_weight) ||
+    rubric.Rubrics_weight < -5 ||
+    rubric.Rubrics_weight > 10 ||
+    rubric.Rubrics_weight === 0
+  ) {
+    issues.push("Peso fora da escala.");
+  }
+  if (typeof rubric.is_response_specific !== "boolean") {
+    issues.push("is_response_specific precisa ser booleano.");
+  }
+  return issues;
 }
 
 function renderEditorState(result) {
