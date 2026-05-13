@@ -872,6 +872,11 @@ function historyItemPresentation(item) {
   const rubricLabel = `${rubricCount} ${rubricCount === 1 ? "rubric" : "rubrics"}`;
   const caseSummary = item?.prompt ? item.prompt : "Sem caso preenchido";
   const qualityStatus = validationReport.qualityValidation?.status;
+  const generationFailureType = generation.generation_failure_type;
+  const hasGenerationFailure =
+    generation.validation_status === "failed" ||
+    Boolean(generation.raw_error) ||
+    (generationFailureType && generationFailureType !== "none");
   const pendingReviewDescription =
     qualityStatus === "pending" || qualityStatus === undefined
       ? "Revisão humana pendente."
@@ -935,10 +940,43 @@ function historyItemPresentation(item) {
     });
   }
 
-  if (generation.validation_status === "failed") {
+  if (hasGenerationFailure) {
+    if (generationFailureType === "provider_failed") {
+      return build({
+        title: "Geração falhou",
+        subtitle: `${category} / provider_failed`,
+        badge: "falhou",
+        severity: "failed",
+        description: "A chamada ao provider falhou. Nenhuma rubric foi aplicada.",
+        isRealRubricArtifact: false,
+      });
+    }
+
+    if (generationFailureType === "provider_mismatch_discarded") {
+      return build({
+        title: "Resultado descartado por segurança",
+        subtitle: `${category} / provider_mismatch_discarded`,
+        badge: "falhou",
+        severity: "failed",
+        description: "Provider/modelo divergiu do solicitado.",
+        isRealRubricArtifact: false,
+      });
+    }
+
+    if (generationFailureType === "invalid_rubric_response") {
+      return build({
+        title: "Geração descartada",
+        subtitle: `${category} / invalid_rubric_response`,
+        badge: "falhou",
+        severity: "failed",
+        description: "O provider respondeu, mas as rubrics não passaram na validação.",
+        isRealRubricArtifact: false,
+      });
+    }
+
     return build({
-      title: "Geração descartada",
-      subtitle: `${category} / ${generation.generation_failure_type || "resultado descartado"}`,
+      title: "Geração falhou",
+      subtitle: `${category} / ${generationFailureType || "resultado descartado"}`,
       badge: "falhou",
       severity: "failed",
       description: "Nenhuma rubric foi aplicada.",
