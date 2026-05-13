@@ -45,6 +45,7 @@ class RubricGenerationService:
                 "rubrics": None,
                 "metadata": {
                     "generation_executed": False,
+                    "generation_failure_type": "none",
                     "workflow_decision": workflow_decision.to_dict(),
                     "fallback_applied": False,
                 },
@@ -80,6 +81,7 @@ class RubricGenerationService:
                         "default_model_configured": False,
                         "model_allowed_by_backend": False,
                         "generation_executed": False,
+                        "generation_failure_type": "none",
                         "fallback_applied": False,
                         "blocked_reason": "default_model_not_configured",
                         "workflow_decision": blocked_decision,
@@ -113,6 +115,7 @@ class RubricGenerationService:
                     "default_model_used": default_model_used,
                     "model_allowed_by_backend": False,
                     "generation_executed": False,
+                    "generation_failure_type": "none",
                     "fallback_applied": False,
                     "blocked_reason": "model_not_allowed_by_backend",
                     "workflow_decision": blocked_decision,
@@ -135,6 +138,7 @@ class RubricGenerationService:
             "fallback_applied": False,
             "result_discarded": False,
             "blocked_reason": None,
+            "generation_failure_type": "none",
             "template_used": self._template_name_for_category(payload.get("category")),
             "generation_executed": True,
         }
@@ -156,6 +160,7 @@ class RubricGenerationService:
                     **metadata,
                     "workflow_decision": failure_decision,
                     "raw_error": str(error),
+                    "generation_failure_type": "provider_failed",
                 },
                 "raw_model_response": None,
                 "error": str(error),
@@ -188,6 +193,7 @@ class RubricGenerationService:
                 "fallback_applied": True,
                 "result_discarded": True,
                 "blocked_reason": mismatch["reason"],
+                "generation_failure_type": "provider_mismatch_discarded",
             })
             blocked_decision = self._generation_decision(
                 "blocked",
@@ -219,6 +225,8 @@ class RubricGenerationService:
                     **metadata,
                     "validation_status": "failed",
                     "validation_error": str(error),
+                    "generation_failure_type": "invalid_rubric_response",
+                    "result_discarded": True,
                 },
                 "raw_model_response": provider_result.text,
                 "error": str(error),

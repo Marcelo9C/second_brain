@@ -37,11 +37,19 @@ class FakeProvider(BaseProvider):
     label = "Fake Provider"
     implemented = True
 
-    def __init__(self, *, fail: bool = False, force_model_used: str | None = None, force_provider_used: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        force_model_used: str | None = None,
+        force_provider_used: str | None = None,
+        response_text: str | None = None,
+    ) -> None:
         self.fail = fail
         self.calls = 0
         self.force_model_used = force_model_used
         self.force_provider_used = force_provider_used
+        self.response_text = response_text
 
     def list_models(self) -> list[dict]:
         return [{"name": "fake-model"}, {"name": "fake-default"}]
@@ -57,7 +65,7 @@ class FakeProvider(BaseProvider):
         used_model = self.force_model_used or model or self.default_model()
         used_provider = self.force_provider_used or self.name
         return ProviderResult(
-            text=json.dumps(generated_rubrics()),
+            text=self.response_text if self.response_text is not None else json.dumps(generated_rubrics()),
             provider_used=used_provider,
             model_used=used_model,
             exact_url_called="http://fake.local/generate",
@@ -77,6 +85,7 @@ class RubricGenerationServiceTest(unittest.TestCase):
 
         self.assertEqual(provider.calls, 0)
         self.assertFalse(result["metadata"]["generation_executed"])
+        self.assertEqual(result["metadata"]["generation_failure_type"], "none")
         self.assertIsNone(result["rubrics"])
         self.assertEqual(result["workflow_decision"]["decision"], "not_ready")
 
@@ -116,6 +125,7 @@ class RubricGenerationServiceTest(unittest.TestCase):
 
         self.assertEqual(provider.calls, 1)
         self.assertTrue(result["success"])
+        self.assertEqual(result["metadata"]["generation_failure_type"], "none")
         self.assertEqual(result["workflow_decision"]["decision"], "generation_succeeded")
 
     def test_generation_prompt_is_generic_and_uses_official_weight_scale(self) -> None:
@@ -169,6 +179,23 @@ class RubricGenerationServiceTest(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertEqual(result["workflow_decision"]["decision"], "generation_failed")
         self.assertEqual(result["metadata"]["raw_error"], "Synthetic provider failure.")
+        self.assertEqual(result["metadata"]["generation_failure_type"], "provider_failed")
+
+    def test_http_200_invalid_rubrics_are_not_provider_failure(self) -> None:
+        provider = FakeProvider(response_text="[]")
+
+        result = self.service(provider).generate(ready_payload())
+
+        self.assertEqual(provider.calls, 1)
+        self.assertFalse(result["success"])
+        self.assertIsNone(result["rubrics"])
+        self.assertEqual(result["raw_model_response"], "[]")
+        self.assertEqual(result["metadata"]["response_status"], 200)
+        self.assertEqual(result["metadata"]["validation_status"], "failed")
+        self.assertIn("non-empty JSON array", result["metadata"]["validation_error"])
+        self.assertEqual(result["metadata"]["generation_failure_type"], "invalid_rubric_response")
+        self.assertTrue(result["metadata"]["result_discarded"])
+        self.assertNotIn("raw_error", result["metadata"])
 
     def test_model_call_false_response_does_not_change_rubrics(self) -> None:
         provider = FakeProvider()
@@ -214,6 +241,7 @@ class RubricGenerationServiceTest(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertTrue(result["metadata"]["fallback_applied"])
         self.assertTrue(result["metadata"]["result_discarded"])
+        self.assertEqual(result["metadata"]["generation_failure_type"], "provider_mismatch_discarded")
         self.assertEqual(result["metadata"]["blocked_reason"], "provider_executed_different_model")
 
     def test_provider_mismatch_is_discarded_post_call(self) -> None:
@@ -225,6 +253,7 @@ class RubricGenerationServiceTest(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertTrue(result["metadata"]["fallback_applied"])
         self.assertTrue(result["metadata"]["result_discarded"])
+        self.assertEqual(result["metadata"]["generation_failure_type"], "provider_mismatch_discarded")
         self.assertEqual(result["metadata"]["blocked_reason"], "provider_executed_different_provider")
 
     def test_no_default_model_configured_blocks_call(self) -> None:
