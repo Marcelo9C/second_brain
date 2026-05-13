@@ -16,6 +16,13 @@ REQUIRED_RUBRIC_FIELDS = {
     "is_response_specific",
 }
 
+ACCEPTED_RUBRIC_DIMENSIONS = {
+    "Cultural Understanding and Application",
+    "Local Facts and Awareness",
+    "Logic and Formatting",
+    "Natural Language Fluency",
+}
+
 
 def validate_rubric_payload(rubrics: Any) -> Any:
     if not isinstance(rubrics, list) or not rubrics:
@@ -29,6 +36,13 @@ def validate_rubric_payload(rubrics: Any) -> Any:
         if missing:
             raise ValueError(
                 f"rubric item {index} is missing required fields: {', '.join(missing)}."
+            )
+
+        dimension = item.get("Rubric_dimensions")
+        if dimension not in ACCEPTED_RUBRIC_DIMENSIONS:
+            raise ValueError(
+                f"rubric item {index} has invalid Rubric_dimensions: '{dimension}'. "
+                f"Must be one of: {', '.join(sorted(ACCEPTED_RUBRIC_DIMENSIONS))}."
             )
 
     return rubrics

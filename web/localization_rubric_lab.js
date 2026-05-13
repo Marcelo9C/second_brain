@@ -785,22 +785,58 @@ function updateActionStates(report = state.lastValidationReport) {
 }
 
 elements.loadTemplate.addEventListener("click", () => {
+  invalidateGenerationMetadata();
   loadTemplate().catch((error) => {
     elements.templateSummary.textContent = error.message;
   });
 });
 
-elements.newCase.addEventListener("click", resetCase);
+elements.newCase.addEventListener("click", () => {
+  invalidateGenerationMetadata();
+  resetCase();
+});
 function invalidateQualityReview() {
   state.humanQualityReviewed = false;
   renderValidation();
 }
 
-elements.rubricsEditor.addEventListener("input", invalidateQualityReview);
-elements.prompt.addEventListener("input", invalidateQualityReview);
-elements.responseRaw.addEventListener("input", invalidateQualityReview);
-elements.goldenResponse.addEventListener("input", invalidateQualityReview);
+function invalidateGenerationMetadata() {
+  state.lastGenerationMetadata = null;
+  state.lastRawModelResponse = null;
+  state.lastValidationReport = null;
+  renderGenerationDiagnostics();
+  renderRawModelResponse();
+  renderValidation();
+}
+
+elements.rubricsEditor.addEventListener("input", () => {
+  invalidateQualityReview();
+  invalidateGenerationMetadata();
+});
+elements.prompt.addEventListener("input", () => {
+  invalidateQualityReview();
+  invalidateGenerationMetadata();
+});
+elements.responseRaw.addEventListener("input", () => {
+  invalidateQualityReview();
+  invalidateGenerationMetadata();
+});
+elements.goldenResponse.addEventListener("input", () => {
+  invalidateQualityReview();
+  invalidateGenerationMetadata();
+});
+elements.chatHistory.addEventListener("input", () => {
+  invalidateQualityReview();
+  invalidateGenerationMetadata();
+});
 elements.categorySelect.addEventListener("change", () => {
+  invalidateGenerationMetadata();
+  loadTemplate().catch((error) => {
+    elements.templateSummary.textContent = error.message;
+  });
+});
+elements.localeSelect.addEventListener("change", () => {
+  invalidateGenerationMetadata();
   loadTemplate().catch((error) => {
     elements.templateSummary.textContent = error.message;
   });

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.schemas.localization import ACCEPTED_RUBRIC_DIMENSIONS
+
 
 REQUIRED_RUBRIC_FIELDS = {
     "Rubric_dimensions",
@@ -9,13 +11,6 @@ REQUIRED_RUBRIC_FIELDS = {
     "Rubrics_description",
     "Rubrics_weight",
     "is_response_specific",
-}
-
-ACCEPTED_RUBRIC_DIMENSIONS = {
-    "Cultural Understanding and Application",
-    "Local Facts and Awareness",
-    "Logic and Formatting",
-    "Natural Language Fluency",
 }
 
 

@@ -333,6 +333,11 @@ class RubricGenerationService:
             "OUTPUT MUST START WITH [ AND END WITH ].\n"
             "Use exactly these keys: Rubric_dimensions, Rubric_title, Rubrics_description, "
             "Rubrics_weight, is_response_specific.\n"
+            "Rubric_dimensions MUST be exactly one of the following strings:\n"
+            "  - 'Cultural Understanding and Application'\n"
+            "  - 'Local Facts and Awareness'\n"
+            "  - 'Logic and Formatting'\n"
+            "  - 'Natural Language Fluency'\n"
             "Do not add extra keys.\n"
             "Positive Rubrics_weight values: 5 to 10.\n"
             "Negative Rubrics_weight values: -10 to -5."
@@ -384,12 +389,19 @@ class RubricGenerationService:
         except json.JSONDecodeError as error:
             raise RubricGenerationError(f"Generated rubric JSON is invalid: {error.msg}.") from error
 
-        validate_rubric_payload(parsed)
+        try:
+            validate_rubric_payload(parsed)
+        except ValueError as error:
+            raise RubricGenerationError(str(error)) from error
+            
         return parsed
 
     def _validate_generated_rubrics(self, rubrics: list[dict[str, Any]]) -> dict[str, Any]:
         messages: list[str] = []
-        validate_rubric_payload(rubrics)
+        try:
+            validate_rubric_payload(rubrics)
+        except ValueError as e:
+            raise RubricGenerationError(str(e)) from e
 
         for index, rubric in enumerate(rubrics, start=1):
             missing = sorted(REQUIRED_RUBRIC_FIELDS - set(rubric.keys()))
