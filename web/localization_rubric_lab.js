@@ -1540,15 +1540,41 @@ function validateFormat(rubrics, structureValidation, contract = null) {
 }
 
 function weightAllowedByContract(weight, contract = null) {
+  if (typeof weight !== "number" || Number.isNaN(weight)) {
+    return false;
+  }
+
   const policy = contract?.weight_policy || {};
   const negativeMin = policy.negative_min ?? -5;
   const negativeMax = policy.negative_max ?? -1;
   const positiveMin = policy.positive_min ?? 1;
   const positiveMax = policy.positive_max ?? 10;
+  const zeroAllowed = policy.zero_allowed === true;
+  const integerOnly = policy.integer_only !== false;
+
+  if (integerOnly && !Number.isInteger(weight)) {
+    return false;
+  }
+  if (weight === 0) {
+    return zeroAllowed;
+  }
+
   return (
     (weight >= negativeMin && weight <= negativeMax) ||
     (weight >= positiveMin && weight <= positiveMax)
   );
+}
+
+function dimensionAllowedByContract(dimension, contract = null) {
+  if (typeof dimension !== "string" || !dimension.trim()) {
+    return false;
+  }
+
+  if (Array.isArray(contract?.allowed_dimensions) && contract.allowed_dimensions.length) {
+    return contract.allowed_dimensions.includes(dimension);
+  }
+
+  return ACCEPTED_RUBRIC_DIMENSIONS.has(dimension);
 }
 
 function validateQuality(structureValidation, formatValidation) {
@@ -1688,6 +1714,7 @@ function requestBackendQualityHeuristics(result) {
 
 function renderRubricCards(rubrics) {
   elements.rubricCards.innerHTML = "";
+  const contractState = editorContractState();
 
   if (!Array.isArray(rubrics)) {
     const empty = document.createElement("div");
@@ -1706,7 +1733,10 @@ function renderRubricCards(rubrics) {
   }
 
   for (const [index, rubric] of rubrics.entries()) {
-    const issues = rubricIssues(rubric);
+    const issues = rubricIssues(rubric, {
+      contract: contractState.editorContract,
+      suppressContractIssues: contractState.hasContractMismatch,
+    });
     const card = document.createElement("article");
     card.className = `rubric-card ${issues.length ? "has-issues" : "ok"}`;
 
@@ -1735,7 +1765,11 @@ function renderRubricCards(rubrics) {
     const specific = document.createElement("span");
     specific.textContent = rubric?.is_response_specific === true ? "response-specific" : "universal";
     const status = document.createElement("span");
-    status.textContent = issues.length ? "problemas detectados" : "estrutura OK";
+    status.textContent = contractState.hasContractMismatch
+      ? "contrato divergente"
+      : issues.length
+        ? "problemas detectados"
+        : "estrutura OK";
     meta.append(specific, status);
 
     card.append(header, description, meta);
@@ -1754,7 +1788,9 @@ function renderRubricCards(rubrics) {
   }
 }
 
-function rubricIssues(rubric) {
+function rubricIssues(rubric, options = {}) {
+  const contract = options.contract || null;
+  const suppressContractIssues = options.suppressContractIssues === true;
   const issues = [];
   if (!rubric || typeof rubric !== "object" || Array.isArray(rubric)) {
     return ["Item precisa ser um objeto."];
@@ -1763,7 +1799,7 @@ function rubricIssues(rubric) {
   if (missing.length) {
     issues.push(`Campos faltando: ${missing.join(", ")}.`);
   }
-  if (!ACCEPTED_RUBRIC_DIMENSIONS.has(rubric.Rubric_dimensions)) {
+  if (!suppressContractIssues && !dimensionAllowedByContract(rubric.Rubric_dimensions, contract)) {
     issues.push("Dimensao nao aceita.");
   }
   if (typeof rubric.Rubric_title !== "string" || !rubric.Rubric_title.trim()) {
@@ -1772,13 +1808,7 @@ function rubricIssues(rubric) {
   if (typeof rubric.Rubrics_description !== "string" || rubric.Rubrics_description.trim().length < 20) {
     issues.push("Descricao curta ou ausente.");
   }
-  if (
-    typeof rubric.Rubrics_weight !== "number" ||
-    Number.isNaN(rubric.Rubrics_weight) ||
-    rubric.Rubrics_weight < -5 ||
-    rubric.Rubrics_weight > 10 ||
-    rubric.Rubrics_weight === 0
-  ) {
+  if (!suppressContractIssues && !weightAllowedByContract(rubric.Rubrics_weight, contract)) {
     issues.push("Peso fora da escala.");
   }
   if (typeof rubric.is_response_specific !== "boolean") {
@@ -1799,7 +1829,7 @@ function renderEditorState(result) {
   if (contractState.hasContractMismatch) {
     kind = "warning";
     title = "Contrato divergente";
-    message = contractState.message;
+    message = "Veja o aviso de contrato do editor antes de revisar/aprovar.";
   } else if (result.rubrics === null) {
     kind = "offline";
     title = "JSON invalido";
