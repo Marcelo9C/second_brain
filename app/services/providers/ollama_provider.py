@@ -19,7 +19,7 @@ class OllamaProvider(BaseProvider):
         *,
         base_url: str,
         fallback_model: str,
-        generation_timeout_seconds: int = 60,
+        generation_timeout_seconds: int = 180,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.fallback_model = fallback_model
