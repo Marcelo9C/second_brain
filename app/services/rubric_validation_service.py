@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.schemas.localization import ACCEPTED_RUBRIC_DIMENSIONS
+from app.services.rubric_quality_heuristic_service import RubricQualityHeuristicService
 
 
 REQUIRED_RUBRIC_FIELDS = {
@@ -15,17 +16,22 @@ REQUIRED_RUBRIC_FIELDS = {
 
 
 class RubricValidationService:
+    def __init__(self, quality_heuristics: RubricQualityHeuristicService | None = None) -> None:
+        self.quality_heuristics = quality_heuristics or RubricQualityHeuristicService()
+
     def validate_case(self, payload: dict[str, Any]) -> dict[str, Any]:
         rubrics = payload.get("rubrics")
         metadata = payload.get("metadata") or {}
         structure = self.structure_validation(rubrics)
         format_result = self.format_validation(rubrics, structure)
+        quality_heuristics = self.quality_heuristics.evaluate(payload, structure, format_result)
         quality = self.quality_validation(metadata, structure, format_result)
         approval = self.approval_readiness(payload, structure, format_result, quality)
 
         return {
             "structureValidation": structure,
             "formatValidation": format_result,
+            "qualityHeuristics": quality_heuristics,
             "qualityValidation": quality,
             "approvalReadiness": approval,
         }

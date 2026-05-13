@@ -118,6 +118,36 @@ class RubricGenerationServiceTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["workflow_decision"]["decision"], "generation_succeeded")
 
+    def test_generation_prompt_is_generic_and_uses_official_weight_scale(self) -> None:
+        prompt = self.service(FakeProvider())._build_prompt(ready_payload()).as_text()
+
+        for forbidden in ("Duda", "Maria", "Valorant", "pôr do sol", "por do sol"):
+            self.assertNotIn(forbidden, prompt)
+        self.assertNotIn("Few-shot", prompt)
+        self.assertNotIn("Task Fulfillment", prompt)
+        self.assertNotIn("Safety and Quality", prompt)
+        self.assertNotIn("-10", prompt)
+        self.assertIn("Rubrics_weight values must be from -5 to 10, except 0.", prompt)
+        self.assertIn("atomic", prompt)
+        self.assertIn("non-overlapping", prompt)
+
+    def test_generated_rubric_validation_uses_official_weight_scale(self) -> None:
+        service = self.service(FakeProvider())
+        valid_negative = generated_rubrics()
+        valid_negative[0]["Rubrics_weight"] = -1
+
+        report = service._validate_generated_rubrics(valid_negative)
+
+        self.assertEqual(report["status"], "valid")
+
+    def test_generated_rubric_validation_rejects_weight_outside_official_scale(self) -> None:
+        service = self.service(FakeProvider())
+        invalid_negative = generated_rubrics()
+        invalid_negative[0]["Rubrics_weight"] = -6
+
+        with self.assertRaisesRegex(Exception, "between -5 and -1"):
+            service._validate_generated_rubrics(invalid_negative)
+
     def test_template_scaffold_with_ready_case_calls_provider_once(self) -> None:
         provider = FakeProvider()
 

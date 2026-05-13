@@ -63,8 +63,51 @@ class RubricValidationServiceTest(unittest.TestCase):
 
         self.assertEqual(report["structureValidation"]["status"], "pass")
         self.assertEqual(report["formatValidation"]["status"], "pass")
+        self.assertEqual(report["qualityHeuristics"]["status"], "warning")
+        self.assertFalse(report["qualityHeuristics"]["blocking"])
         self.assertEqual(report["qualityValidation"]["status"], "pending")
         self.assertEqual(report["approvalReadiness"]["status"], "blocked")
+
+    def test_schema_valid_rubrics_can_have_quality_warnings(self) -> None:
+        payload = valid_payload()
+        payload["rubrics"] = [
+            {
+                "Rubric_dimensions": "Natural Language Fluency",
+                "Rubric_title": "Natural Tone",
+                "Rubrics_description": "The response uses natural language suitable for the request.",
+                "Rubrics_weight": 9,
+                "is_response_specific": False,
+            },
+            {
+                "Rubric_dimensions": "Natural Language Fluency",
+                "Rubric_title": "Conversational Tone",
+                "Rubrics_description": "The response uses conversational language suitable for the request.",
+                "Rubrics_weight": 9,
+                "is_response_specific": False,
+            },
+            {
+                "Rubric_dimensions": "Natural Language Fluency",
+                "Rubric_title": "Clear Wording",
+                "Rubrics_description": "The response uses clear wording suitable for evaluation.",
+                "Rubrics_weight": 9,
+                "is_response_specific": False,
+            },
+            {
+                "Rubric_dimensions": "Natural Language Fluency",
+                "Rubric_title": "Readable Flow",
+                "Rubrics_description": "The response has readable flow and direct phrasing.",
+                "Rubrics_weight": 8,
+                "is_response_specific": False,
+            },
+        ]
+
+        report = self.service.validate_case(payload)
+
+        self.assertEqual(report["structureValidation"]["status"], "pass")
+        self.assertEqual(report["formatValidation"]["status"], "pass")
+        self.assertEqual(report["qualityHeuristics"]["status"], "warning")
+        self.assertFalse(report["qualityHeuristics"]["blocking"])
+        self.assertIn("Only 4 rubrics generated", " ".join(report["qualityHeuristics"]["messages"]))
 
     def test_approval_passes_after_human_quality_review(self) -> None:
         payload = valid_payload()

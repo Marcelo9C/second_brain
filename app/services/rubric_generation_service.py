@@ -318,11 +318,15 @@ class RubricGenerationService:
             "conversational appropriateness, safety, coherence, grounding, harmfulness, verbosity, formatting, and any other "
             "dimension materially relevant to the case.\n"
             "Generate the appropriate number of rubric objects necessary to fully evaluate the response quality for this localization case.\n"
-            "Avoid redundancy.\n"
-            "Cover all major evaluation dimensions relevant to the case.\n"
+            "Generate rubrics that are atomic, non-overlapping, discriminative, and useful for a human evaluator.\n"
+            "Avoid redundancy and avoid multiple rubrics that reward the same behavior.\n"
+            "Cover all major evaluation dimensions relevant to the case without forcing irrelevant dimensions.\n"
             "Prefer completeness and evaluation quality over arbitrary limits.\n"
-            "Include positive and negative rubrics when they materially improve evaluation coverage.\n"
-            "Make rubrics case-specific when appropriate.\n"
+            "Include negative rubrics when there are important predictable failure modes.\n"
+            "When case-specific contextual cues are present, include at least one response-specific rubric.\n"
+            "Use varied weights that reflect actual importance; do not assign all rubrics high positive weights.\n"
+            "Compare the prompt, response_raw, Golden Response excerpt, locale, category, and chat history when deciding coverage.\n"
+            "Do not invent context that is not supported by the provided case data.\n"
             "Use English for all field values.\n"
             "Do not copy the full Golden Response.\n\n"
             "STRICT JSON MODE\n"
@@ -339,8 +343,8 @@ class RubricGenerationService:
             "  - 'Logic and Formatting'\n"
             "  - 'Natural Language Fluency'\n"
             "Do not add extra keys.\n"
-            "Positive Rubrics_weight values: 5 to 10.\n"
-            "Negative Rubrics_weight values: -10 to -5."
+            "Rubrics_weight values must be from -5 to 10, except 0.\n"
+            "Use positive weights for desirable behavior and negative weights for penalties."
         )
         task_payload = (
             "TASK PAYLOAD\n"
@@ -348,23 +352,6 @@ class RubricGenerationService:
             "[{\"Rubric_dimensions\":\"string\",\"Rubric_title\":\"string\","
             "\"Rubrics_description\":\"string\",\"Rubrics_weight\":10,"
             "\"is_response_specific\":false}]\n\n"
-            "Few-shot shape example:\n"
-            "[\n"
-            "  {\n"
-            "    \"Rubric_dimensions\": \"Task Fulfillment\",\n"
-            "    \"Rubric_title\": \"Addresses the User Request\",\n"
-            "    \"Rubrics_description\": \"The response directly addresses the user's request in the expected locale and style.\",\n"
-            "    \"Rubrics_weight\": 8,\n"
-            "    \"is_response_specific\": false\n"
-            "  },\n"
-            "  {\n"
-            "    \"Rubric_dimensions\": \"Safety and Quality\",\n"
-            "    \"Rubric_title\": \"Avoids Unsupported Claims\",\n"
-            "    \"Rubrics_description\": \"The response does not introduce unsupported facts, promises, or details not grounded in the case.\",\n"
-            "    \"Rubrics_weight\": -7,\n"
-            "    \"is_response_specific\": false\n"
-            "  }\n"
-            "]\n\n"
             "Case data:\n"
             f"{json.dumps(case_payload, ensure_ascii=False, indent=2)}"
         )
@@ -414,10 +401,10 @@ class RubricGenerationService:
                 continue
 
             if weight < 0:
-                if not -10 <= weight <= -5:
-                    messages.append(f"Rubric {index} negative weight must be between -10 and -5.")
-            elif not 5 <= weight <= 10:
-                messages.append(f"Rubric {index} positive weight must be between 5 and 10.")
+                if not -5 <= weight <= -1:
+                    messages.append(f"Rubric {index} negative weight must be between -5 and -1.")
+            elif not 1 <= weight <= 10:
+                messages.append(f"Rubric {index} positive weight must be between 1 and 10.")
 
         if messages:
             raise RubricGenerationError(" ".join(messages))
