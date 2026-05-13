@@ -24,6 +24,7 @@ const state = {
   selectedCaseId: null,
   lastGenerationMetadata: null,
   lastRawModelResponse: null,
+  editorArtifactMetadata: null,
   humanQualityReviewed: false,
   lastValidationReport: null,
   backendValidationRequestId: 0,
@@ -55,6 +56,7 @@ const elements = {
   rubricCards: document.querySelector("#rubric-cards"),
   jsonStatus: document.querySelector("#json-status"),
   editorStateSummary: document.querySelector("#editor-state-summary"),
+  contractMismatchWarning: document.querySelector("#contract-mismatch-warning"),
   validationOutput: document.querySelector("#validation-output"),
   validationLayers: document.querySelector("#validation-layers"),
   failedGenerationPanel: document.querySelector("#failed-generation-panel"),
@@ -165,6 +167,119 @@ function editorHasAppliedRubrics() {
   } catch {
     return false;
   }
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function contractsEqual(left, right) {
+  if (!left || !right) {
+    return false;
+  }
+  return stableJson(left) === stableJson(right);
+}
+
+function templateSnapshotFromCurrent() {
+  if (!state.currentTemplate) {
+    return null;
+  }
+  return {
+    locale: state.currentTemplate.locale,
+    category: state.currentTemplate.category,
+    template_name: state.currentTemplate.template_name,
+    template_version: state.currentTemplate.template_version,
+    template_contract: state.currentTemplate.contract || null,
+  };
+}
+
+function templateSnapshotFromRecord(record) {
+  const metadata = record?.metadata || {};
+  const scaffold = metadata.template_scaffold || {};
+  const contract = metadata.template_contract || null;
+  if (!contract && !scaffold.template_name && !record?.template_name && !record?.category) {
+    return null;
+  }
+  return {
+    locale: record?.locale || scaffold.locale || elements.localeSelect.value,
+    category: record?.category || scaffold.category || null,
+    template_name: record?.template_name || scaffold.template_name || null,
+    template_version: record?.template_version || scaffold.template_version || null,
+    template_contract: contract,
+  };
+}
+
+function activeEditorArtifactMetadata() {
+  if (state.editorArtifactMetadata?.template_contract) {
+    return state.editorArtifactMetadata;
+  }
+  if (state.lastGenerationMetadata?.template_contract) {
+    return {
+      locale: state.lastGenerationMetadata.locale || elements.localeSelect.value,
+      category: state.lastGenerationMetadata.category || elements.categorySelect.value,
+      template_name: state.lastGenerationMetadata.template_used || null,
+      template_version: state.currentTemplate?.template_version || null,
+      template_contract: state.lastGenerationMetadata.template_contract,
+    };
+  }
+  return null;
+}
+
+function contractWeightSummary(contract) {
+  const policy = contract?.weight_policy || {};
+  const negativeMin = policy.negative_min ?? "n/d";
+  const negativeMax = policy.negative_max ?? "n/d";
+  const positiveMin = policy.positive_min ?? "n/d";
+  const positiveMax = policy.positive_max ?? "n/d";
+  return `pesos negativos ${negativeMin}..${negativeMax}, positivos ${positiveMin}..${positiveMax}`;
+}
+
+function contractDescriptor(snapshot, fallbackCategory = "n/d") {
+  const category = snapshot?.category || fallbackCategory;
+  const templateName = snapshot?.template_name || "template n/d";
+  return `${category} / ${templateName} / ${contractWeightSummary(snapshot?.template_contract)}`;
+}
+
+function editorContractState() {
+  const hasRubrics = editorHasAppliedRubrics();
+  const editorArtifact = activeEditorArtifactMetadata();
+  const currentTemplate = templateSnapshotFromCurrent();
+  const editorContract = hasRubrics
+    ? editorArtifact?.template_contract || currentTemplate?.template_contract || null
+    : null;
+  const currentTemplateContract = currentTemplate?.template_contract || null;
+  const hasContractMismatch = Boolean(
+    hasRubrics &&
+      editorArtifact?.template_contract &&
+      currentTemplateContract &&
+      !contractsEqual(editorArtifact.template_contract, currentTemplateContract),
+  );
+  const message = hasContractMismatch
+    ? [
+        "Contrato do editor difere da selecao atual.",
+        `Editor: ${contractDescriptor(editorArtifact, "categoria n/d")}.`,
+        `Selecao atual: ${contractDescriptor(currentTemplate, elements.categorySelect.value)}.`,
+        "Gere novamente ou limpe o editor antes de revisar/aprovar.",
+      ].join(" ")
+    : "";
+
+  return {
+    editorContract,
+    currentTemplateContract,
+    editorArtifact,
+    currentTemplate,
+    hasContractMismatch,
+    message,
+  };
 }
 
 function renderTemplateSummary() {
@@ -625,6 +740,13 @@ function assertGenerationMatch(metadata) {
 }
 
 function assertCanUseStatus(status) {
+  const contractState = editorContractState();
+  if (
+    (status === "reviewed" || status === "approved" || status === "exported") &&
+    contractState.hasContractMismatch
+  ) {
+    throw new Error(contractState.message);
+  }
   const validationStatus = state.lastGenerationMetadata?.validation_status;
   if (
     (status === "reviewed" || status === "approved") &&
@@ -652,6 +774,7 @@ function fillCase(record) {
   elements.tagsInput.value = Array.isArray(record?.tags) ? record.tags.join(", ") : "";
   state.lastGenerationMetadata = record?.metadata?.rubric_generation || null;
   state.lastRawModelResponse = record?.metadata?.raw_model_response || null;
+  state.editorArtifactMetadata = templateSnapshotFromRecord(record);
   state.humanQualityReviewed = Boolean(record?.metadata?.human_quality_reviewed);
   renderGenerationDiagnostics(state.lastGenerationMetadata);
   renderRawModelResponse(state.lastRawModelResponse);
@@ -674,6 +797,7 @@ function resetCase() {
   elements.tagsInput.value = "";
   state.lastGenerationMetadata = null;
   state.lastRawModelResponse = null;
+  state.editorArtifactMetadata = null;
   state.humanQualityReviewed = false;
   renderGenerationDiagnostics();
   renderRawModelResponse();
@@ -687,23 +811,34 @@ function buildPayload(statusOverride = null) {
     state.humanQualityReviewed = true;
   }
   const validation = renderValidation();
+  const contractState = editorContractState();
   const status = statusOverride || elements.statusSelect.value;
   if (!validation.ok && (status !== "draft" || validation.rubrics === null)) {
     throw new Error("Corrija o JSON de rubrics antes de salvar.");
   }
   assertCanUseStatus(status);
   const caseDataReadyForGeneration = requiredCaseFieldsMissing().length === 0;
+  const artifactTemplate = validation.rubrics?.length
+    ? contractState.editorArtifact || contractState.currentTemplate
+    : contractState.currentTemplate;
 
   return {
-    locale: elements.localeSelect.value,
-    category: elements.categorySelect.value,
+    locale: validation.rubrics?.length && artifactTemplate?.locale
+      ? artifactTemplate.locale
+      : elements.localeSelect.value,
+    category: validation.rubrics?.length && artifactTemplate?.category
+      ? artifactTemplate.category
+      : elements.categorySelect.value,
     chat_history: parseChatHistory(),
     prompt: elements.prompt.value.trim() || null,
     response_raw: elements.responseRaw.value.trim() || null,
     golden_response: elements.goldenResponse.value.trim() || null,
     evaluator_notes: elements.evaluatorNotes.value.trim() || null,
-    template_name: state.currentTemplate?.template_name || `${elements.categorySelect.value.toLowerCase()}_template.json`,
-    template_version: state.currentTemplate?.template_version || "v1",
+    template_name:
+      artifactTemplate?.template_name ||
+      state.currentTemplate?.template_name ||
+      `${elements.categorySelect.value.toLowerCase()}_template.json`,
+    template_version: artifactTemplate?.template_version || state.currentTemplate?.template_version || "v1",
     rubrics: validation.rubrics || [],
     status,
     tags: parseTags(),
@@ -711,7 +846,18 @@ function buildPayload(statusOverride = null) {
       source: "localization_rubric_lab",
       case_data_ready_for_generation: caseDataReadyForGeneration,
       rubric_source: validation.rubrics?.length ? "editor_draft" : "empty_draft",
-      template_scaffold: state.currentTemplate
+      template_scaffold: artifactTemplate
+        ? {
+            template_name: artifactTemplate.template_name,
+            template_version: artifactTemplate.template_version,
+            category: artifactTemplate.category,
+            scaffold_slots:
+              state.currentTemplate?.template_name === artifactTemplate.template_name
+                ? state.currentTemplate.rubrics?.length || 0
+                : 0,
+          }
+        : null,
+      current_template_scaffold: state.currentTemplate
         ? {
             template_name: state.currentTemplate.template_name,
             template_version: state.currentTemplate.template_version,
@@ -719,7 +865,11 @@ function buildPayload(statusOverride = null) {
             scaffold_slots: state.currentTemplate.rubrics?.length || 0,
           }
         : null,
-      template_contract: state.currentTemplate?.contract || null,
+      template_contract: validation.rubrics?.length
+        ? contractState.editorContract
+        : state.currentTemplate?.contract || null,
+      current_template_contract: state.currentTemplate?.contract || null,
+      contract_mismatch: contractState.hasContractMismatch,
       human_quality_reviewed: state.humanQualityReviewed,
       validation_report: validation.report,
       rubric_generation: state.lastGenerationMetadata,
@@ -838,6 +988,9 @@ async function loadTemplate() {
   state.lastRawModelResponse = null;
   state.humanQualityReviewed = false;
   state.lastValidationReport = null;
+  if (!editorHasAppliedRubrics()) {
+    state.editorArtifactMetadata = null;
+  }
   renderGenerationDiagnostics();
   renderRawModelResponse();
   renderTemplateSummary();
@@ -1163,6 +1316,9 @@ async function generateRubrics() {
     state.lastGenerationMetadata = {
       ...(result.metadata || {}),
       template_used: state.currentTemplate?.template_name || result.metadata?.template_used,
+      template_contract: state.currentTemplate?.contract || result.metadata?.template_contract || null,
+      category: state.currentTemplate?.category || elements.categorySelect.value,
+      locale: state.currentTemplate?.locale || elements.localeSelect.value,
     };
     state.lastRawModelResponse = result.raw_model_response || null;
     state.backendValidationRequestId += 1;
@@ -1187,6 +1343,7 @@ async function generateRubrics() {
     }
 
     elements.rubricsEditor.value = JSON.stringify(result.rubrics, null, 2);
+    state.editorArtifactMetadata = templateSnapshotFromCurrent();
     elements.statusSelect.value = "draft";
     elements.aiWarning.textContent =
       result.warning || "Rubrics geradas por IA devem ser revisadas antes da aprovação.";
@@ -1259,13 +1416,15 @@ function validateRubrics() {
     return { ok: false, message: error.message, rubrics: null, report };
   }
 
+  const contractState = editorContractState();
   const structureValidation = validateStructure(rubrics);
-  const formatValidation = validateFormat(rubrics, structureValidation);
+  const formatValidation = validateFormat(rubrics, structureValidation, contractState.editorContract);
   const qualityValidation = validateQuality(structureValidation, formatValidation);
   const approvalReadiness = validateApprovalReadiness(
     structureValidation,
     formatValidation,
     qualityValidation,
+    contractState,
   );
   const report = {
     structureValidation,
@@ -1331,7 +1490,7 @@ function validateStructure(rubrics) {
   });
 }
 
-function validateFormat(rubrics, structureValidation) {
+function validateFormat(rubrics, structureValidation, contract = null) {
   if (structureValidation.status !== "pass") {
     return layer("pending", "Formato pendente ate a estrutura passar.", true);
   }
@@ -1362,8 +1521,8 @@ function validateFormat(rubrics, structureValidation) {
     const weight = rubric.Rubrics_weight;
     if (typeof weight !== "number" || Number.isNaN(weight)) {
       issues.push(`Item ${index + 1}: Rubrics_weight deve ser numerico.`);
-    } else if (weight < -5 || weight > 10 || weight === 0) {
-      issues.push(`Item ${index + 1}: Rubrics_weight fora da escala configurada.`);
+    } else if (!weightAllowedByContract(weight, contract)) {
+      issues.push(`Item ${index + 1}: Rubrics_weight fora da escala do contrato do editor.`);
     }
 
     if (typeof rubric.is_response_specific !== "boolean") {
@@ -1378,6 +1537,18 @@ function validateFormat(rubrics, structureValidation) {
   return layer("pass", "Estrutura e formato OK. Qualidade ainda nao avaliada.", false, {
     count: rubrics.length,
   });
+}
+
+function weightAllowedByContract(weight, contract = null) {
+  const policy = contract?.weight_policy || {};
+  const negativeMin = policy.negative_min ?? -5;
+  const negativeMax = policy.negative_max ?? -1;
+  const positiveMin = policy.positive_min ?? 1;
+  const positiveMax = policy.positive_max ?? 10;
+  return (
+    (weight >= negativeMin && weight <= negativeMax) ||
+    (weight >= positiveMin && weight <= positiveMax)
+  );
 }
 
 function validateQuality(structureValidation, formatValidation) {
@@ -1396,7 +1567,18 @@ function validateQuality(structureValidation, formatValidation) {
   );
 }
 
-function validateApprovalReadiness(structureValidation, formatValidation, qualityValidation) {
+function validateApprovalReadiness(
+  structureValidation,
+  formatValidation,
+  qualityValidation,
+  contractState = editorContractState(),
+) {
+  if (contractState.hasContractMismatch) {
+    return layer("blocked", contractState.message, true, {
+      contract_mismatch: true,
+    });
+  }
+
   const missing = requiredCaseFieldsMissing();
   if (missing.length) {
     return layer("blocked", `Aprovacao bloqueada: faltam ${missing.join(", ")}.`, true, {
@@ -1447,6 +1629,7 @@ function requestBackendQualityHeuristics(result) {
   const requestId = ++state.backendValidationRequestId;
   const structureOk = result.report?.structureValidation?.status === "pass";
   const formatOk = result.report?.formatValidation?.status === "pass";
+  const contractState = editorContractState();
 
   if (!Array.isArray(result.rubrics) || !structureOk || !formatOk) {
     renderQualityHeuristics({
@@ -1470,10 +1653,12 @@ function requestBackendQualityHeuristics(result) {
       response_raw: elements.responseRaw.value.trim() || null,
       golden_response: elements.goldenResponse.value.trim() || null,
       rubrics: result.rubrics,
-      contract: state.currentTemplate?.contract || null,
+      contract: contractState.editorContract || state.currentTemplate?.contract || null,
       metadata: {
         human_quality_reviewed: state.humanQualityReviewed,
-        template_contract: state.currentTemplate?.contract || null,
+        template_contract: contractState.editorContract || state.currentTemplate?.contract || null,
+        current_template_contract: state.currentTemplate?.contract || null,
+        contract_mismatch: contractState.hasContractMismatch,
       },
     }),
   })
@@ -1604,11 +1789,18 @@ function rubricIssues(rubric) {
 
 function renderEditorState(result) {
   const report = result.report;
+  const contractState = editorContractState();
   let kind = "neutral";
   let title = "Aguardando rubrics";
   let message = result.message;
 
-  if (result.rubrics === null) {
+  renderContractMismatchWarning(contractState);
+
+  if (contractState.hasContractMismatch) {
+    kind = "warning";
+    title = "Contrato divergente";
+    message = contractState.message;
+  } else if (result.rubrics === null) {
     kind = "offline";
     title = "JSON invalido";
     message = "O editor contem texto que nao pode ser interpretado como JSON.";
@@ -1633,8 +1825,23 @@ function renderEditorState(result) {
   elements.nextStep.textContent = getRecommendedNextStep(result, state.lastGenerationMetadata);
 }
 
+function renderContractMismatchWarning(contractState = editorContractState()) {
+  if (!elements.contractMismatchWarning) {
+    return;
+  }
+
+  elements.contractMismatchWarning.hidden = !contractState.hasContractMismatch;
+  elements.contractMismatchWarning.textContent = contractState.hasContractMismatch
+    ? contractState.message
+    : "";
+}
+
 function getRecommendedNextStep(result, generationMetadata) {
   const report = result.report;
+  const contractState = editorContractState();
+  if (contractState.hasContractMismatch) {
+    return "Contrato divergente: gere novamente para a selecao atual ou limpe o editor antes de revisar/aprovar.";
+  }
   const presentation = generationPresentation(state, generationMetadata, state.lastValidationReport);
   if (
     generationMetadata ||
@@ -1781,8 +1988,11 @@ function updateActionStates(report = state.lastValidationReport) {
   const structureOk = report?.structureValidation?.status === "pass";
   const formatOk = report?.formatValidation?.status === "pass";
   const approvalOk = report?.approvalReadiness?.status === "pass";
-  elements.markReviewed.disabled = !(structureOk && formatOk);
-  elements.markApproved.disabled = !approvalOk;
+  const hasContractMismatch = editorContractState().hasContractMismatch;
+  elements.markReviewed.disabled = !(structureOk && formatOk) || hasContractMismatch;
+  elements.markApproved.disabled = !approvalOk || hasContractMismatch;
+  elements.exportJsonl.disabled = hasContractMismatch;
+  elements.exportCsv.disabled = hasContractMismatch;
 }
 
 elements.loadTemplate.addEventListener("click", () => {
@@ -1819,6 +2029,9 @@ function invalidateGenerationMetadata() {
 }
 
 elements.rubricsEditor.addEventListener("input", () => {
+  if (!editorHasAppliedRubrics()) {
+    state.editorArtifactMetadata = null;
+  }
   invalidateQualityReview();
   invalidateGenerationMetadata();
 });
