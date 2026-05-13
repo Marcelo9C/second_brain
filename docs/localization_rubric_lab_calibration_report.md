@@ -145,3 +145,108 @@ Knowledge:
 - Generation failure type:
 - Quality warnings matched human assessment:
 - Useful / partially useful / poor:
+
+## Sprint 5F Category Calibration Against Client Guide Principles
+
+Confidentiality note:
+- This section uses only synthetic cases and abstract quality principles.
+- It does not include client guide excerpts, screenshots, OCR, proprietary criteria, real customer examples, or close paraphrases of confidential material.
+
+Provider/model used:
+- Gemini / gemini-2.5-flash
+
+### Category: Chitchat
+
+Synthetic case used:
+- Chat history: Synthetic prior turn where the user asks for a quick and friendly check-in about a fictional project.
+- Prompt: Give a short, casual reply that acknowledges the fictional project without adding new facts.
+- Response_raw: A cordial but generic reply that does not use the contextual cue.
+- Golden Response: A brief, natural reply that acknowledges the contextual cue directly.
+
+Generation state: invalid_rubric_response
+Provider/model: gemini / gemini-2.5-flash
+Rubrics applied: no
+Rubric count: 0
+Weights: none applied
+Negative rubric present: no applied rubrics
+Response-specific rubric present: no applied rubrics
+Quality warnings: unavailable because no valid rubrics were applied
+
+Human assessment:
+- poor
+
+Guide-alignment assessment:
+- not aligned
+
+Abstract issue:
+- The provider responded, but generated rubric weights outside the official negative range. Since no rubrics were applied, the set cannot be used by a human evaluator or assessed for guide alignment beyond the invalid output.
+
+Recommended non-confidential adjustment:
+- Consider a small abstract generation-prompt adjustment that reinforces the official weight range and states that invalid weights will cause the entire rubric set to be discarded. Do not add examples or guide-derived content.
+
+### Category: Writing
+
+Synthetic case used:
+- Chat history: empty.
+- Prompt: Write exactly two bullet points in a polite tone; each bullet must be short and include one action item.
+- Response_raw: A polite prose reply that ignores the requested bullet format and length constraint.
+- Golden Response: Two concise bullet points that satisfy the format and action-item requirements.
+
+Generation state: invalid_rubric_response
+Provider/model: gemini / gemini-2.5-flash
+Rubrics applied: no
+Rubric count: 0
+Weights: none applied
+Negative rubric present: no applied rubrics
+Response-specific rubric present: no applied rubrics
+Quality warnings: unavailable because no valid rubrics were applied
+
+Human assessment:
+- poor
+
+Guide-alignment assessment:
+- not aligned
+
+Abstract issue:
+- The provider responded, but generated multiple negative weights outside the official range. This prevented validation and blocked evaluation of whether the rubrics captured explicit writing instructions, format, tone, constraints, or response_raw vs golden_response differences.
+
+Recommended non-confidential adjustment:
+- Consider a small abstract generation-prompt adjustment focused on schema-valid weight discipline before any category-specific tuning. Do not add few-shot examples or guide-derived criteria.
+
+### Category: Knowledge
+
+Synthetic case used:
+- Chat history: empty.
+- Prompt: Explain how local rules can differ from national guidance, without naming specific local rules unless the case provides them.
+- Response_raw: A broad answer with an unsupported local obligation.
+- Golden Response: A cautious answer that explains the distinction without inventing local facts.
+
+Generation state: invalid_rubric_response
+Provider/model: gemini / gemini-2.5-flash
+Rubrics applied: no
+Rubric count: 0
+Weights: none applied
+Negative rubric present: no applied rubrics
+Response-specific rubric present: no applied rubrics
+Quality warnings: unavailable because no valid rubrics were applied
+
+Human assessment:
+- poor
+
+Guide-alignment assessment:
+- not aligned
+
+Abstract issue:
+- The provider responded, but generated a negative weight outside the official range. No rubric list was applied, so the system could not evaluate factual accuracy, coverage, caution, local-fact grounding, or unsupported-claim penalties.
+
+Recommended non-confidential adjustment:
+- Consider a small abstract generation-prompt adjustment that explicitly prioritizes valid weights before nuanced category coverage. Keep any future Knowledge calibration synthetic and avoid local facts unless the synthetic case provides them.
+
+### Sprint 5F Interim Conclusion
+
+Across Chitchat, Writing, and Knowledge, the primary blocker was not category-specific guide alignment yet. The blocker was generation validity: Gemini produced rubric objects with negative weights outside the official -5 to -1 penalty range.
+
+Evidence-based recommendation:
+- Do not tune category behavior yet.
+- First consider a minimal, non-confidential prompt adjustment to reinforce the official weight range and the consequence of invalid weights.
+- Re-run the same synthetic category calibration after the validity issue improves.

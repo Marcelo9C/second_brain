@@ -356,6 +356,11 @@ class RubricGenerationService:
             "  - 'Natural Language Fluency'\n"
             "Do not add extra keys.\n"
             "Rubrics_weight values must be from -5 to 10, except 0.\n"
+            "Rubrics_weight is schema-critical.\n"
+            "Invalid weights cause the entire generation to be rejected.\n"
+            "Use only integer weights from -5 to -1 for penalties, or 1 to 10 for positive criteria.\n"
+            "Never use 0.\n"
+            "Never use weights below -5 or above 10.\n"
             "Use positive weights for desirable behavior and negative weights for penalties."
         )
         task_payload = (
