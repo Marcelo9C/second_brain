@@ -161,6 +161,8 @@ class RubricGenerationService:
                     "workflow_decision": failure_decision,
                     "raw_error": str(error),
                     "generation_failure_type": "provider_failed",
+                    "provider_used": None,
+                    "model_used": None,
                 },
                 "raw_model_response": None,
                 "error": str(error),

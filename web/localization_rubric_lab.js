@@ -94,7 +94,7 @@ async function fetchJson(path, options = {}) {
     const detail = Array.isArray(payload.detail)
       ? payload.detail.map((item) => item.msg).join(" | ")
       : payload.detail;
-    throw new Error(payload.error || detail || "Erro inesperado.");
+    throw new Error(payload.error || detail || "Falha sem detalhe retornado pelo backend.");
   }
 
   return payload;
@@ -158,6 +158,15 @@ function parseTags() {
     .filter(Boolean);
 }
 
+function editorHasAppliedRubrics() {
+  try {
+    const parsed = JSON.parse(elements.rubricsEditor.value || "[]");
+    return Array.isArray(parsed) && parsed.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function renderTemplateSummary() {
   if (!state.currentTemplate) {
     elements.templateSummary.textContent = "Nenhum template carregado.";
@@ -184,16 +193,17 @@ function renderGenerationDiagnostics(metadata = null) {
   elements.generationDiagnostics.innerHTML = "";
   elements.generationDiagnostics.classList.remove("mismatch");
   renderFailedGenerationPanel(metadata);
-  if (hasFailedGenerationResult(metadata)) {
+  if (hasFailedGenerationResult(metadata) || isStaleGeneration(metadata)) {
     elements.generationDiagnosticsDetails.open = false;
   }
 
   if (!metadata) {
+    const presentation = generationPresentation(state, metadata, state.lastValidationReport);
     setStateSummary(
       elements.generationSummary,
-      "neutral",
-      "Nenhuma geracao executada",
-      "A IA ainda nao foi chamada para este caso.",
+      presentation.kind,
+      presentation.title,
+      presentation.message,
     );
     const empty = document.createElement("div");
     empty.className = "empty-state";
@@ -204,13 +214,35 @@ function renderGenerationDiagnostics(metadata = null) {
 
   renderGenerationSummary(metadata);
 
-  if (hasGenerationMismatch(metadata) || hasFailedGenerationResult(metadata)) {
-    elements.generationDiagnostics.classList.add("mismatch");
+  if (isStaleGeneration(metadata)) {
+    const currentProvider = document.createElement("div");
+    currentProvider.className = "diagnostic-item";
+    const providerLabel = document.createElement("span");
+    providerLabel.textContent = "current_provider_selection";
+    const providerValue = document.createElement("strong");
+    providerValue.textContent = elements.rubricProviderSelect.value || "n/d";
+    currentProvider.append(providerLabel, providerValue);
+
+    const currentModel = document.createElement("div");
+    currentModel.className = "diagnostic-item";
+    const modelLabel = document.createElement("span");
+    modelLabel.textContent = "current_model_selection";
+    const modelValue = document.createElement("strong");
+    modelValue.textContent = elements.rubricModelSelect.value || "n/d";
+    currentModel.append(modelLabel, modelValue);
+
+    elements.generationDiagnostics.append(currentProvider, currentModel);
+    return;
+  }
+
+  const presentation = generationPresentation(state, metadata, state.lastValidationReport);
+  if (presentation.severity === "error" && presentation.showTechnicalDetails) {
+    if (presentation.state === "provider_mismatch_discarded") {
+      elements.generationDiagnostics.classList.add("mismatch");
+    }
     const alert = document.createElement("div");
     alert.className = "diagnostic-alert";
-    alert.textContent = hasGenerationMismatch(metadata)
-      ? "Alerta: modelo/provider usado difere do solicitado. Reviewed e Approved ficam bloqueados."
-      : "Alerta: a resposta do modelo falhou na validação. Reviewed e Approved ficam bloqueados.";
+    alert.textContent = `${presentation.title}: ${presentation.message}`;
     elements.generationDiagnostics.appendChild(alert);
   }
 
@@ -254,12 +286,17 @@ function renderGenerationDiagnostics(metadata = null) {
 }
 
 function renderRawModelResponse(raw = null) {
+  const presentation = generationPresentation(state, state.lastGenerationMetadata, state.lastValidationReport);
   elements.rawModelResponse.textContent = raw || "Nenhuma resposta bruta registrada.";
   if (!raw) {
     elements.rawModelNote.textContent = "Nenhuma resposta bruta registrada.";
     return;
   }
-  if (hasFailedGenerationResult()) {
+  if (!presentation.showRawResponse) {
+    elements.rawModelNote.textContent = "Resposta bruta indisponivel para o estado atual da geracao.";
+    return;
+  }
+  if (presentation.state === "invalid_rubric_response") {
     elements.rawModelDetails.open = false;
     elements.rawModelNote.textContent =
       "Resposta bruta preservada apenas para auditoria. Não foi aplicada como rubrics válidas.";
@@ -270,6 +307,17 @@ function renderRawModelResponse(raw = null) {
 }
 
 function renderGenerationSummary(metadata) {
+  const presentation = generationPresentation(state, metadata, state.lastValidationReport);
+  if (presentation.state) {
+    setStateSummary(
+      elements.generationSummary,
+      presentation.kind,
+      presentation.title,
+      presentation.message,
+    );
+    return;
+  }
+
   if (metadata.generation_state === "stale" || metadata.validation_status === "stale") {
     setStateSummary(
       elements.generationSummary,
@@ -321,18 +369,217 @@ function renderGenerationSummary(metadata) {
 }
 
 function hasGenerationMismatch(metadata) {
-  return metadata?.fallback_applied === true || metadata?.result_discarded === true;
+  if (metadata?.generation_failure_type === "provider_mismatch_discarded") {
+    return true;
+  }
+  const providerMismatch = Boolean(
+    metadata?.provider_requested &&
+      metadata?.provider_used &&
+      metadata.provider_requested !== metadata.provider_used,
+  );
+  const modelMismatch = Boolean(
+    metadata?.model_to_call &&
+      metadata?.model_used &&
+      metadata.model_to_call !== metadata.model_used,
+  );
+  return providerMismatch || modelMismatch;
 }
 
 function hasFailedGenerationResult(metadata = state.lastGenerationMetadata) {
   return Boolean(
-    metadata?.validation_status === "failed" ||
-      metadata?.result_discarded === true ||
+    metadata?.generation_failure_type === "provider_failed" ||
+      metadata?.generation_failure_type === "invalid_rubric_response" ||
+      metadata?.generation_failure_type === "provider_mismatch_discarded" ||
+      metadata?.validation_status === "failed" ||
       metadata?.validation_error,
   );
 }
 
+function isStaleGeneration(metadata = state.lastGenerationMetadata) {
+  return metadata?.generation_state === "stale" || metadata?.validation_status === "stale";
+}
+
+function generationPresentation(
+  appState = state,
+  metadata = appState.lastGenerationMetadata,
+  validationReport = appState.lastValidationReport,
+) {
+  const qualityStatus = validationReport?.qualityHeuristics?.status;
+  const rubricsApplied = editorHasAppliedRubrics();
+
+  if (!metadata) {
+    return {
+      state: "no_generation_yet",
+      title: "Nenhuma geração executada",
+      message: "A IA ainda não foi chamada para este caso.",
+      severity: "neutral",
+      kind: "neutral",
+      reason: null,
+      nextStep: "Preencha o caso e gere rubrics, ou escreva/copie rubrics manualmente.",
+      showTechnicalDetails: false,
+      showRawResponse: false,
+      showRubricCards: rubricsApplied,
+      showQualityWarnings: rubricsApplied,
+    };
+  }
+
+  if (isStaleGeneration(metadata)) {
+    return {
+      state: "stale_generation",
+      title: "Geração desatualizada",
+      message:
+        "O caso mudou depois da última geração. Gere novamente para obter uma auditoria válida para a seleção atual.",
+      severity: "warning",
+      kind: "warning",
+      reason: null,
+      nextStep: "Gere novamente para obter uma auditoria válida para a seleção atual.",
+      showTechnicalDetails: false,
+      showRawResponse: false,
+      showRubricCards: rubricsApplied,
+      showQualityWarnings: false,
+    };
+  }
+
+  const failureType = metadata.generation_failure_type;
+  if (failureType === "provider_failed") {
+    return {
+      state: failureType,
+      title: "Geração falhou",
+      message: "A chamada ao provider falhou. Nenhuma rubric foi gerada.",
+      severity: "error",
+      kind: "offline",
+      reason: metadata.raw_error || metadata.validation_error || null,
+      nextStep: "Verifique provider/modelo, conexão e configuração antes de gerar novamente.",
+      showTechnicalDetails: true,
+      showRawResponse: false,
+      showRubricCards: false,
+      showQualityWarnings: false,
+    };
+  }
+  if (failureType === "invalid_rubric_response") {
+    return {
+      state: failureType,
+      title: "Resultado nao aplicado",
+      message:
+        "O provider respondeu, mas as rubrics retornadas nao passaram na validacao. Nenhuma rubric foi aplicada ao editor.",
+      severity: "error",
+      kind: "offline",
+      reason: metadata.validation_error || null,
+      nextStep: "Revise a resposta bruta para auditoria e gere novamente ou tente outro modelo.",
+      showTechnicalDetails: true,
+      showRawResponse: true,
+      showRubricCards: false,
+      showQualityWarnings: false,
+    };
+  }
+  if (failureType === "provider_mismatch_discarded" || hasGenerationMismatch(metadata)) {
+    return {
+      state: "provider_mismatch_discarded",
+      title: "Resultado descartado por seguranca",
+      message: "O provider/modelo usado divergiu do solicitado. O resultado foi descartado.",
+      severity: "error",
+      kind: "offline",
+      reason: metadata.blocked_reason || null,
+      nextStep: "Selecione provider/modelo novamente e gere outra vez.",
+      showTechnicalDetails: true,
+      showRawResponse: false,
+      showRubricCards: false,
+      showQualityWarnings: false,
+    };
+  }
+
+  if (
+    metadata.validation_status === "valid" &&
+    qualityStatus === "warning" &&
+    rubricsApplied
+  ) {
+    return {
+      state: "valid_rubrics_with_quality_warnings",
+      title: "Rubrics geradas com alertas",
+      message: "As rubrics passaram na validação técnica, mas precisam de revisão de qualidade.",
+      severity: "warning",
+      kind: "warning",
+      reason: null,
+      nextStep: "Revise os alertas de qualidade antes de marcar como reviewed.",
+      showTechnicalDetails: true,
+      showRawResponse: true,
+      showRubricCards: true,
+      showQualityWarnings: true,
+    };
+  }
+
+  if (
+    metadata.validation_status === "valid" &&
+    qualityStatus === "pass" &&
+    rubricsApplied
+  ) {
+    return {
+      state: "valid_rubrics_ready_for_human_review",
+      title: "Rubrics geradas",
+      message: "As rubrics passaram na validação técnica. Revise antes de marcar como reviewed.",
+      severity: "ok",
+      kind: "ok",
+      reason: null,
+      nextStep: "Faça a revisão humana e marque como reviewed quando estiver pronto.",
+      showTechnicalDetails: true,
+      showRawResponse: true,
+      showRubricCards: true,
+      showQualityWarnings: true,
+    };
+  }
+
+  if (failureType === "none" && metadata.generation_executed !== false) {
+    return {
+      state: "valid_rubrics_ready_for_human_review",
+      title: "Rubrics geradas",
+      message: "Provider/modelo auditados e resultado aplicado ou aguardando revisao.",
+      severity: "ok",
+      kind: "ok",
+      reason: null,
+      nextStep: "Revise as rubrics antes de marcar como reviewed.",
+      showTechnicalDetails: true,
+      showRawResponse: true,
+      showRubricCards: rubricsApplied,
+      showQualityWarnings: true,
+    };
+  }
+
+  if (metadata.raw_error || metadata.validation_error || metadata.blocked_reason) {
+    return {
+      state: "unknown_failure",
+      title: "Geração falhou",
+      message: "A geracao nao foi aplicada ao editor.",
+      severity: "error",
+      kind: "offline",
+      reason: metadata.raw_error || metadata.validation_error || metadata.blocked_reason,
+      nextStep: "Revise os detalhes técnicos e gere novamente.",
+      showTechnicalDetails: true,
+      showRawResponse: Boolean(state.lastRawModelResponse),
+      showRubricCards: false,
+      showQualityWarnings: false,
+    };
+  }
+
+  return {
+    state: "no_generation_yet",
+    title: "Nenhuma geração executada",
+    message: "A IA ainda não foi chamada para este caso.",
+    severity: "neutral",
+    kind: "neutral",
+    reason: null,
+    nextStep: "Preencha o caso e gere rubrics, ou escreva/copie rubrics manualmente.",
+    showTechnicalDetails: false,
+    showRawResponse: false,
+    showRubricCards: rubricsApplied,
+    showQualityWarnings: rubricsApplied,
+  };
+}
+
 function failedGenerationReason(metadata = state.lastGenerationMetadata) {
+  const presentation = generationPresentation(state, metadata, state.lastValidationReport);
+  if (presentation.reason || presentation.message) {
+    return presentation.reason || presentation.message;
+  }
   return (
     metadata?.validation_error ||
     metadata?.blocked_reason ||
@@ -343,19 +590,36 @@ function failedGenerationReason(metadata = state.lastGenerationMetadata) {
 }
 
 function renderFailedGenerationPanel(metadata = state.lastGenerationMetadata) {
+  const presentation = generationPresentation(state, metadata, state.lastValidationReport);
   if (!hasFailedGenerationResult(metadata)) {
     elements.failedGenerationPanel.hidden = true;
     elements.failedGenerationReason.textContent = "n/d";
     return;
   }
   elements.failedGenerationPanel.hidden = false;
+  elements.failedGenerationPanel.querySelector("h3").textContent = presentation.title;
+  elements.failedGenerationPanel.querySelector("p").textContent = presentation.message;
   elements.failedGenerationReason.textContent = failedGenerationReason(metadata);
 }
 
 function assertGenerationMatch(metadata) {
+  const presentation = generationPresentation(state, metadata, state.lastValidationReport);
+  if (
+    presentation.state === "provider_failed" ||
+    presentation.state === "invalid_rubric_response" ||
+    presentation.state === "provider_mismatch_discarded"
+  ) {
+    if (presentation.state === "invalid_rubric_response") {
+      throw new Error(
+        "O modelo respondeu rubrics, mas a validacao rejeitou o resultado. Nada foi aplicado ao editor.",
+      );
+    }
+    throw new Error(presentation.reason || presentation.message);
+  }
+
   if (metadata?.fallback_applied === true || metadata?.result_discarded === true) {
     throw new Error(
-      metadata?.blocked_reason || "Geração bloqueada por fallback ou erro de validação de modelo/provider."
+      metadata?.blocked_reason || presentation.message
     );
   }
 }
@@ -707,10 +971,9 @@ async function generateRubrics() {
     }
 
     if (!result.success) {
-      elements.aiWarning.textContent =
-        result.warning || result.error || "A geração falhou na validação.";
-      elements.validationOutput.textContent =
-        result.error || "A resposta do modelo não passou na validação.";
+      const presentation = generationPresentation(state, state.lastGenerationMetadata, state.lastValidationReport);
+      elements.aiWarning.textContent = result.warning || result.error || presentation.message;
+      elements.validationOutput.textContent = result.error || presentation.message;
       renderQualityHeuristics();
       return;
     }
@@ -1012,6 +1275,12 @@ function requestBackendQualityHeuristics(result) {
         ...state.lastValidationReport,
         qualityHeuristics: report.qualityHeuristics,
       };
+      renderGenerationDiagnostics(state.lastGenerationMetadata);
+      elements.nextStep.textContent = generationPresentation(
+        state,
+        state.lastGenerationMetadata,
+        state.lastValidationReport,
+      ).nextStep;
       renderQualityHeuristics(report.qualityHeuristics);
     })
     .catch(() => {
@@ -1156,6 +1425,13 @@ function renderEditorState(result) {
 
 function getRecommendedNextStep(result, generationMetadata) {
   const report = result.report;
+  const presentation = generationPresentation(state, generationMetadata, state.lastValidationReport);
+  if (
+    generationMetadata ||
+    presentation.state === "no_generation_yet" && report.structureValidation.status === "empty"
+  ) {
+    return presentation.nextStep;
+  }
   if (generationMetadata?.generation_state === "stale" || generationMetadata?.validation_status === "stale") {
     return "O caso mudou depois da ultima geracao. Gere novamente ou revise manualmente antes de avancar.";
   }
@@ -1206,7 +1482,8 @@ function renderValidationLayers(report) {
 }
 
 function renderQualityHeuristics(qualityHeuristics) {
-  if (hasFailedGenerationResult()) {
+  const presentation = generationPresentation(state, state.lastGenerationMetadata, state.lastValidationReport);
+  if (!presentation.showQualityWarnings) {
     elements.qualityHeuristics.classList.remove("pass", "warning", "pending");
     elements.qualityHeuristics.classList.add("pending");
     elements.qualityHeuristicsStatus.className = "badge neutral";

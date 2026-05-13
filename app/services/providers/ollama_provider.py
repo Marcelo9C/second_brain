@@ -14,9 +14,16 @@ class OllamaProvider(BaseProvider):
     label = "Ollama Local"
     implemented = True
 
-    def __init__(self, *, base_url: str, fallback_model: str) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        fallback_model: str,
+        generation_timeout_seconds: int = 60,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.fallback_model = fallback_model
+        self.generation_timeout_seconds = generation_timeout_seconds
 
     def list_models(self) -> list[dict[str, Any]]:
         request = Request(f"{self.base_url}/api/tags", method="GET")
@@ -78,7 +85,7 @@ class OllamaProvider(BaseProvider):
         )
         started = perf_counter()
         try:
-            with urlopen(request, timeout=180) as response:
+            with urlopen(request, timeout=self.generation_timeout_seconds) as response:
                 raw = response.read().decode("utf-8")
                 response_status = response.status
         except HTTPError as error:
@@ -94,6 +101,10 @@ class OllamaProvider(BaseProvider):
             raise ProviderError(message) from error
         except URLError as error:
             raise ProviderError(f"Ollama unreachable: {error.reason}") from error
+        except TimeoutError as error:
+            raise ProviderError(
+                f"Ollama timed out after {self.generation_timeout_seconds} seconds."
+            ) from error
 
         data = json.loads(raw) if raw else {}
         content = data.get("message", {}).get("content")

@@ -1,7 +1,9 @@
 import json
 import unittest
+from unittest.mock import patch
 
 from app.services.providers.base_provider import BaseProvider, ProviderError, ProviderPrompt, ProviderResult
+from app.services.providers.ollama_provider import OllamaProvider
 from app.services.rubric_generation_service import RubricGenerationService
 
 
@@ -242,6 +244,19 @@ class RubricGenerationServiceTest(unittest.TestCase):
         self.assertEqual(result["workflow_decision"]["decision"], "generation_failed")
         self.assertEqual(result["metadata"]["raw_error"], "Synthetic provider failure.")
         self.assertEqual(result["metadata"]["generation_failure_type"], "provider_failed")
+        self.assertIsNone(result["metadata"]["provider_used"])
+        self.assertIsNone(result["metadata"]["model_used"])
+
+    def test_ollama_timeout_becomes_provider_error(self) -> None:
+        provider = OllamaProvider(
+            base_url="http://localhost:11434",
+            fallback_model="phi3:mini",
+            generation_timeout_seconds=1,
+        )
+
+        with patch("app.services.providers.ollama_provider.urlopen", side_effect=TimeoutError("timed out")):
+            with self.assertRaisesRegex(ProviderError, "Ollama timed out after 1 seconds"):
+                provider.generate(prompt="Synthetic prompt.", model="phi3:mini")
 
     def test_http_200_invalid_rubrics_are_not_provider_failure(self) -> None:
         provider = FakeProvider(response_text="[]")
