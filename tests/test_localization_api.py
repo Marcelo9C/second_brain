@@ -14,17 +14,30 @@ class FakeProviderAPI(BaseProvider):
     label = "Fake Provider"
     implemented = True
 
-    def __init__(self, *, fail: bool = False, force_model_used: str | None = None, force_provider_used: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        force_model_used: str | None = None,
+        force_provider_used: str | None = None,
+        name: str = "fake",
+        models: list[str] | None = None,
+        default_model_name: str = "fake-default",
+    ) -> None:
+        self.name = name
+        self.label = f"{name} Provider"
         self.fail = fail
         self.calls = 0
         self.force_model_used = force_model_used
         self.force_provider_used = force_provider_used
+        self.models = models or ["fake-model", "fake-default"]
+        self.default_model_name = default_model_name
 
     def list_models(self) -> list[dict]:
-        return [{"name": "fake-model"}, {"name": "fake-default"}]
+        return [{"name": model} for model in self.models]
 
     def default_model(self) -> str | None:
-        return "fake-default"
+        return self.default_model_name
 
     def generate(self, *, prompt: ProviderPrompt | str, model: str | None = None) -> ProviderResult:
         self.calls += 1
@@ -203,6 +216,71 @@ class LocalizationApiTest(unittest.TestCase):
         self.assertEqual(data["metadata"]["provider_used"], "fake")
         self.assertEqual(data["metadata"]["model_used"], "fake-model")
         self.assertIsNotNone(data.get("rubrics"))
+
+    def test_api_routes_requested_ollama_provider_and_model(self):
+        ollama_provider = FakeProviderAPI(
+            name="ollama",
+            models=["phi3:mini"],
+            default_model_name="phi3:mini",
+        )
+        gemini_provider = FakeProviderAPI(
+            name="gemini",
+            models=["gemini-2.5-flash"],
+            default_model_name="gemini-2.5-flash",
+        )
+        service = RubricGenerationService(
+            providers={"ollama": ollama_provider, "gemini": gemini_provider},
+            default_provider="gemini",
+        )
+
+        with patch("app.api.routes.localization.get_rubric_generation_service", return_value=service):
+            response = self.client.post(
+                "/api/localization/rubrics/generate",
+                json=self._ready_payload(provider="ollama", model="phi3:mini"),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(ollama_provider.calls, 1)
+        self.assertEqual(gemini_provider.calls, 0)
+        self.assertEqual(data["metadata"]["provider_requested"], "ollama")
+        self.assertEqual(data["metadata"]["model_requested"], "phi3:mini")
+        self.assertEqual(data["metadata"]["provider_used"], "ollama")
+        self.assertEqual(data["metadata"]["model_used"], "phi3:mini")
+
+    def test_api_blocks_model_from_previous_provider_before_call(self):
+        ollama_provider = FakeProviderAPI(
+            name="ollama",
+            models=["phi3:mini"],
+            default_model_name="phi3:mini",
+        )
+        gemini_provider = FakeProviderAPI(
+            name="gemini",
+            models=["gemini-2.5-flash"],
+            default_model_name="gemini-2.5-flash",
+        )
+        service = RubricGenerationService(
+            providers={"ollama": ollama_provider, "gemini": gemini_provider},
+            default_provider="gemini",
+        )
+
+        with patch("app.api.routes.localization.get_rubric_generation_service", return_value=service):
+            response = self.client.post(
+                "/api/localization/rubrics/generate",
+                json=self._ready_payload(provider="ollama", model="gemini-2.5-flash"),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["success"])
+        self.assertEqual(ollama_provider.calls, 0)
+        self.assertEqual(gemini_provider.calls, 0)
+        self.assertEqual(data["metadata"]["provider_requested"], "ollama")
+        self.assertEqual(data["metadata"]["model_requested"], "gemini-2.5-flash")
+        self.assertFalse(data["metadata"]["model_allowed_by_backend"])
+        self.assertFalse(data["metadata"]["generation_executed"])
+        self.assertEqual(data["metadata"]["blocked_reason"], "model_not_allowed_by_backend")
 
 if __name__ == "__main__":
     unittest.main()

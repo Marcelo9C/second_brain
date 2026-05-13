@@ -44,18 +44,25 @@ class FakeProvider(BaseProvider):
         force_model_used: str | None = None,
         force_provider_used: str | None = None,
         response_text: str | None = None,
+        name: str = "fake",
+        models: list[str] | None = None,
+        default_model_name: str = "fake-default",
     ) -> None:
+        self.name = name
+        self.label = f"{name} Provider"
         self.fail = fail
         self.calls = 0
         self.force_model_used = force_model_used
         self.force_provider_used = force_provider_used
         self.response_text = response_text
+        self.models = models or ["fake-model", "fake-default"]
+        self.default_model_name = default_model_name
 
     def list_models(self) -> list[dict]:
-        return [{"name": "fake-model"}, {"name": "fake-default"}]
+        return [{"name": model} for model in self.models]
 
     def default_model(self) -> str:
-        return "fake-default"
+        return self.default_model_name
 
     def generate(self, *, prompt: ProviderPrompt | str, model: str | None = None) -> ProviderResult:
         self.calls += 1
@@ -77,6 +84,12 @@ class FakeProvider(BaseProvider):
 class RubricGenerationServiceTest(unittest.TestCase):
     def service(self, provider: FakeProvider) -> RubricGenerationService:
         return RubricGenerationService(providers={"fake": provider}, default_provider="fake")
+
+    def multi_provider_service(self, *providers: FakeProvider) -> RubricGenerationService:
+        return RubricGenerationService(
+            providers={provider.name: provider for provider in providers},
+            default_provider=providers[0].name,
+        )
 
     def test_empty_draft_does_not_call_provider(self) -> None:
         provider = FakeProvider()
@@ -127,6 +140,55 @@ class RubricGenerationServiceTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["metadata"]["generation_failure_type"], "none")
         self.assertEqual(result["workflow_decision"]["decision"], "generation_succeeded")
+
+    def test_requested_ollama_provider_and_model_are_called(self) -> None:
+        ollama = FakeProvider(name="ollama", models=["phi3:mini"], default_model_name="phi3:mini")
+        gemini = FakeProvider(name="gemini", models=["gemini-2.5-flash"], default_model_name="gemini-2.5-flash")
+        service = self.multi_provider_service(gemini, ollama)
+
+        result = service.generate(ready_payload(provider="ollama", model="phi3:mini"))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(ollama.calls, 1)
+        self.assertEqual(gemini.calls, 0)
+        self.assertEqual(result["metadata"]["provider_requested"], "ollama")
+        self.assertEqual(result["metadata"]["model_requested"], "phi3:mini")
+        self.assertEqual(result["metadata"]["provider_used"], "ollama")
+        self.assertEqual(result["metadata"]["model_used"], "phi3:mini")
+        self.assertEqual(result["metadata"]["model_to_call"], "phi3:mini")
+        self.assertFalse(result["metadata"]["default_model_used"])
+
+    def test_requested_gemini_provider_and_model_are_called(self) -> None:
+        ollama = FakeProvider(name="ollama", models=["phi3:mini"], default_model_name="phi3:mini")
+        gemini = FakeProvider(name="gemini", models=["gemini-2.5-flash"], default_model_name="gemini-2.5-flash")
+        service = self.multi_provider_service(ollama, gemini)
+
+        result = service.generate(ready_payload(provider="gemini", model="gemini-2.5-flash"))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(ollama.calls, 0)
+        self.assertEqual(gemini.calls, 1)
+        self.assertEqual(result["metadata"]["provider_requested"], "gemini")
+        self.assertEqual(result["metadata"]["model_requested"], "gemini-2.5-flash")
+        self.assertEqual(result["metadata"]["provider_used"], "gemini")
+        self.assertEqual(result["metadata"]["model_used"], "gemini-2.5-flash")
+
+    def test_model_from_previous_provider_is_blocked_before_call(self) -> None:
+        ollama = FakeProvider(name="ollama", models=["phi3:mini"], default_model_name="phi3:mini")
+        gemini = FakeProvider(name="gemini", models=["gemini-2.5-flash"], default_model_name="gemini-2.5-flash")
+        service = self.multi_provider_service(gemini, ollama)
+
+        result = service.generate(ready_payload(provider="ollama", model="gemini-2.5-flash"))
+
+        self.assertFalse(result["success"])
+        self.assertEqual(ollama.calls, 0)
+        self.assertEqual(gemini.calls, 0)
+        self.assertEqual(result["metadata"]["provider_requested"], "ollama")
+        self.assertEqual(result["metadata"]["model_requested"], "gemini-2.5-flash")
+        self.assertEqual(result["metadata"]["model_to_call"], "gemini-2.5-flash")
+        self.assertFalse(result["metadata"]["model_allowed_by_backend"])
+        self.assertFalse(result["metadata"]["generation_executed"])
+        self.assertEqual(result["metadata"]["blocked_reason"], "model_not_allowed_by_backend")
 
     def test_generation_prompt_is_generic_and_uses_official_weight_scale(self) -> None:
         prompt = self.service(FakeProvider())._build_prompt(ready_payload()).as_text()

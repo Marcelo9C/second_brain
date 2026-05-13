@@ -19,6 +19,8 @@ const state = {
   cases: [],
   providers: [],
   models: [],
+  modelsLoading: false,
+  providerModelRequestId: 0,
   selectedCaseId: null,
   lastGenerationMetadata: null,
   lastRawModelResponse: null,
@@ -219,6 +221,7 @@ function renderGenerationDiagnostics(metadata = null) {
     "model_used",
     "model_to_call",
     "default_model_used",
+    "generation_failure_type",
     "fallback_applied",
     "model_allowed_by_backend",
     "exact_url_called",
@@ -499,20 +502,42 @@ function renderProviderSelect() {
 
 async function loadProviderModels() {
   const provider = elements.rubricProviderSelect.value;
+  const requestId = ++state.providerModelRequestId;
+  state.modelsLoading = true;
+  elements.generateRubrics.disabled = true;
+  elements.rubricModelSelect.innerHTML = "";
+  const loadingOption = document.createElement("option");
+  loadingOption.value = "";
+  loadingOption.textContent = provider ? "Carregando modelos..." : "Fallback do provider";
+  elements.rubricModelSelect.appendChild(loadingOption);
+  state.models = [];
+
   if (!provider) {
-    state.models = [];
+    state.modelsLoading = false;
     renderModelSelect();
+    elements.generateRubrics.disabled = false;
     return;
   }
 
+  let models = [];
   try {
-    const models = await fetchJson(`/api/localization/providers/${provider}/models`);
-    state.models = Array.isArray(models) ? models : [];
+    const response = await fetchJson(`/api/localization/providers/${provider}/models`);
+    models = Array.isArray(response) ? response : [];
   } catch {
-    state.models = [];
+    models = [];
   }
 
+  if (
+    requestId !== state.providerModelRequestId ||
+    elements.rubricProviderSelect.value !== provider
+  ) {
+    return;
+  }
+
+  state.models = models;
+  state.modelsLoading = false;
   renderModelSelect();
+  elements.generateRubrics.disabled = false;
 }
 
 function renderModelSelect() {
@@ -624,10 +649,16 @@ async function saveCase(statusOverride = null) {
 }
 
 async function generateRubrics() {
+  if (state.modelsLoading) {
+    throw new Error("Aguarde o carregamento dos modelos do provider selecionado.");
+  }
+
   if (!state.currentTemplate) {
     await loadTemplate();
   }
 
+  const providerRequested = elements.rubricProviderSelect.value || undefined;
+  const modelRequested = elements.rubricModelSelect.value || null;
   const validation = renderValidation();
   const baseTemplate = state.currentTemplate?.rubrics || validation.rubrics;
   if (!baseTemplate) {
@@ -652,8 +683,8 @@ async function generateRubrics() {
         response_raw: elements.responseRaw.value.trim() || null,
         golden_response: elements.goldenResponse.value.trim() || null,
         base_template: baseTemplate,
-        provider: elements.rubricProviderSelect.value || undefined,
-        model: elements.rubricModelSelect.value || null,
+        provider: providerRequested,
+        model: modelRequested,
       }),
     });
 
@@ -691,6 +722,9 @@ async function generateRubrics() {
     renderValidation();
   } finally {
     elements.generateRubrics.disabled = false;
+    if (state.modelsLoading) {
+      elements.generateRubrics.disabled = true;
+    }
     elements.generateRubrics.classList.remove("generating");
     elements.generateRubrics.removeAttribute("aria-busy");
     elements.generateRubrics.textContent = "Gerar com IA";
@@ -1331,9 +1365,14 @@ elements.localeSelect.addEventListener("change", () => {
 });
 
 elements.rubricProviderSelect.addEventListener("change", () => {
+  invalidateGenerationMetadata();
   loadProviderModels().catch((error) => {
     elements.aiWarning.textContent = error.message;
   });
+});
+
+elements.rubricModelSelect.addEventListener("change", () => {
+  invalidateGenerationMetadata();
 });
 
 elements.saveCase.addEventListener("click", () => {
