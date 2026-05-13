@@ -14,6 +14,7 @@ DEFAULT_REQUIRED_RUBRIC_FIELDS = {
 }
 
 LocalizationCategory = Literal["Writing", "Chitchat", "Knowledge"]
+NegativeRubricPolicyMode = Literal["none", "recommended", "required", "template_default"]
 
 
 class RubricWeightPolicy(BaseModel):
@@ -47,19 +48,23 @@ class RubricWeightPolicy(BaseModel):
             return
         if weight > 0 and not self.positive_min <= weight <= self.positive_max:
             raise ValueError(
-                f"{label} positive value must be between {self.positive_min} and {self.positive_max}."
+                f"{label} positive weight must be between {self.positive_min} and {self.positive_max}."
             )
         if weight < 0 and not self.negative_min <= weight <= self.negative_max:
             raise ValueError(
-                f"{label} negative value must be between {self.negative_min} and {self.negative_max}."
+                f"{label} negative weight must be between {self.negative_min} and {self.negative_max}."
             )
+
+
+class RubricNegativePolicy(BaseModel):
+    mode: NegativeRubricPolicyMode = "recommended"
 
 
 class RubricContract(BaseModel):
     allowed_dimensions: list[str] = Field(min_length=1)
     weight_policy: RubricWeightPolicy
     expected_rubric_count: int = Field(ge=1)
-    requires_negative_rubric: bool = False
+    negative_rubric_policy: RubricNegativePolicy = Field(default_factory=RubricNegativePolicy)
     requires_response_specific_when_context_exists: bool = True
     quality_review_required: bool = True
     required_fields: set[str] = Field(default_factory=lambda: set(DEFAULT_REQUIRED_RUBRIC_FIELDS))
@@ -96,9 +101,15 @@ class RubricContract(BaseModel):
             label=f"{prefix} Rubrics_weight",
         )
 
-    def validate_rubrics(self, rubrics: Any) -> Any:
+    def validate_rubrics(self, rubrics: Any, *, enforce_expected_count: bool = False) -> Any:
         if not isinstance(rubrics, list) or not rubrics:
             raise ValueError("rubrics must be a non-empty JSON array.")
+
+        if enforce_expected_count and len(rubrics) != self.expected_rubric_count:
+            raise ValueError(
+                "rubrics count must match expected_rubric_count "
+                f"({self.expected_rubric_count})."
+            )
 
         for index, item in enumerate(rubrics, start=1):
             self.validate_rubric(item, index=index)
@@ -122,11 +133,6 @@ class TemplateContract(BaseModel):
             )
 
         self.contract.validate_rubrics(self.rubric_slots)
-
-        if self.contract.requires_negative_rubric and not any(
-            rubric.get("Rubrics_weight", 0) < 0 for rubric in self.rubric_slots
-        ):
-            raise ValueError("contract requires at least one negative rubric.")
 
         return self
 

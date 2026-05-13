@@ -5,6 +5,7 @@ from unittest.mock import patch
 from app.services.providers.base_provider import BaseProvider, ProviderError, ProviderPrompt, ProviderResult
 from app.services.providers.ollama_provider import OllamaProvider
 from app.services.rubric_generation_service import RubricGenerationService
+from app.schemas.rubric_contract import RubricContract, RubricWeightPolicy
 
 
 def ready_payload(**overrides):
@@ -34,6 +35,24 @@ def generated_rubrics() -> list[dict]:
     ]
 
 
+def contract_for(*, dimension: str = "Natural Language Fluency", negative_min: int = -7, count: int = 1) -> dict:
+    return RubricContract(
+        allowed_dimensions=[dimension],
+        weight_policy=RubricWeightPolicy(
+            positive_min=1,
+            positive_max=10,
+            negative_min=negative_min,
+            negative_max=-1,
+            zero_allowed=False,
+            integer_only=True,
+        ),
+        expected_rubric_count=count,
+        negative_rubric_policy={"mode": "recommended"},
+        requires_response_specific_when_context_exists=True,
+        quality_review_required=True,
+    ).model_dump(mode="json")
+
+
 class FakeProvider(BaseProvider):
     name = "fake"
     label = "Fake Provider"
@@ -59,6 +78,7 @@ class FakeProvider(BaseProvider):
         self.response_text = response_text
         self.models = models or ["fake-model", "fake-default"]
         self.default_model_name = default_model_name
+        self.last_prompt = None
 
     def list_models(self) -> list[dict]:
         return [{"name": model} for model in self.models]
@@ -68,6 +88,7 @@ class FakeProvider(BaseProvider):
 
     def generate(self, *, prompt: ProviderPrompt | str, model: str | None = None) -> ProviderResult:
         self.calls += 1
+        self.last_prompt = prompt
         if self.fail:
             raise ProviderError("Synthetic provider failure.")
         
@@ -211,6 +232,19 @@ class RubricGenerationServiceTest(unittest.TestCase):
         self.assertIn("Reflect meaningful differences between response_raw and the Golden Response excerpt", prompt)
         self.assertIn("Do not infer repeated behavior", prompt)
 
+    def test_generation_prompt_uses_active_contract_weight_scale(self) -> None:
+        contract = RubricContract.model_validate(contract_for(negative_min=-7))
+        provider = FakeProvider()
+
+        result = self.service(provider).generate(ready_payload(), active_contract=contract)
+
+        self.assertTrue(result["success"])
+        prompt = provider.last_prompt.as_text()
+        self.assertIn("negative integer weights from -7 to -1", prompt)
+        self.assertIn("positive integer weights from 1 to 10", prompt)
+        self.assertNotIn("Rubrics_weight values must be from -5 to 10", prompt)
+        self.assertNotIn("-5 to -1", prompt)
+
     def test_generated_rubric_validation_uses_official_weight_scale(self) -> None:
         service = self.service(FakeProvider())
         valid_negative = generated_rubrics()
@@ -227,6 +261,29 @@ class RubricGenerationServiceTest(unittest.TestCase):
 
         with self.assertRaisesRegex(Exception, "between -5 and -1"):
             service._validate_generated_rubrics(invalid_negative)
+
+    def test_generated_rubric_validation_uses_active_contract_weight_scale(self) -> None:
+        service = self.service(FakeProvider())
+        generated = generated_rubrics()
+        generated[0]["Rubrics_weight"] = -7
+
+        report = service._validate_generated_rubrics(
+            generated,
+            contract=RubricContract.model_validate(contract_for(negative_min=-7)),
+        )
+
+        self.assertEqual(report["status"], "valid")
+
+    def test_generated_rubric_validation_error_uses_active_contract_weight_scale(self) -> None:
+        service = self.service(FakeProvider())
+        generated = generated_rubrics()
+        generated[0]["Rubrics_weight"] = -8
+
+        with self.assertRaisesRegex(Exception, "between -7 and -1"):
+            service._validate_generated_rubrics(
+                generated,
+                contract=RubricContract.model_validate(contract_for(negative_min=-7)),
+            )
 
     def test_template_scaffold_with_ready_case_calls_provider_once(self) -> None:
         provider = FakeProvider()

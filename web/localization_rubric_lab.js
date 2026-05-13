@@ -719,6 +719,7 @@ function buildPayload(statusOverride = null) {
             scaffold_slots: state.currentTemplate.rubrics?.length || 0,
           }
         : null,
+      template_contract: state.currentTemplate?.contract || null,
       human_quality_reviewed: state.humanQualityReviewed,
       validation_report: validation.report,
       rubric_generation: state.lastGenerationMetadata,
@@ -1115,6 +1116,7 @@ async function generateRubrics() {
         response_raw: elements.responseRaw.value.trim() || null,
         golden_response: elements.goldenResponse.value.trim() || null,
         base_template: baseTemplate,
+        contract: state.currentTemplate?.contract || null,
         provider: providerRequested,
         model: modelRequested,
       }),
@@ -1430,8 +1432,10 @@ function requestBackendQualityHeuristics(result) {
       response_raw: elements.responseRaw.value.trim() || null,
       golden_response: elements.goldenResponse.value.trim() || null,
       rubrics: result.rubrics,
+      contract: state.currentTemplate?.contract || null,
       metadata: {
         human_quality_reviewed: state.humanQualityReviewed,
+        template_contract: state.currentTemplate?.contract || null,
       },
     }),
   })

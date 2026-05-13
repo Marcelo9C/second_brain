@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.repositories.localization_repository import LocalizationRubricCaseRepository
-from app.schemas.rubric_contract import parse_template_contract
+from app.schemas.rubric_contract import RubricContract, parse_template_contract
 from app.services.rubric_validation_service import RubricValidationService
 
 
@@ -48,14 +48,7 @@ class LocalizationService:
         return templates
 
     def get_template(self, *, locale: str, category: str) -> dict[str, Any]:
-        template_name = self.category_templates[category]
-        template_path = self._locale_dir(locale) / "templates" / template_name
-        if not template_path.exists():
-            raise FileNotFoundError(f"Template not found: {template_path}")
-
-        template_contract = parse_template_contract(
-            json.loads(template_path.read_text(encoding="utf-8"))
-        )
+        template_contract = self.get_template_contract(locale=locale, category=category)
         return {
             "locale": template_contract.locale,
             "category": template_contract.category,
@@ -64,9 +57,34 @@ class LocalizationService:
             "artifact_type": "template_scaffold",
             "rubrics_are_final": False,
             "message": "Template scaffold loaded. Fill the real case and review before approval.",
-            "contract": template_contract.contract.model_dump(),
+            "contract": template_contract.contract.model_dump(mode="json"),
             "rubrics": template_contract.rubric_slots,
         }
+
+    def get_template_contract(
+        self,
+        *,
+        locale: str,
+        category: str,
+        template_name: str | None = None,
+    ):
+        template_name = template_name or self.category_templates[category]
+        template_path = self._locale_dir(locale) / "templates" / template_name
+        if not template_path.exists():
+            raise FileNotFoundError(f"Template not found: {template_path}")
+
+        return parse_template_contract(json.loads(template_path.read_text(encoding="utf-8")))
+
+    def active_contract_for_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        verify_payload_contract: bool = False,
+    ) -> RubricContract | None:
+        contract = self._active_contract_for_payload(payload)
+        if verify_payload_contract and contract is not None:
+            self._assert_payload_contract_matches(payload, contract)
+        return contract
 
     def create_case(self, payload: dict[str, Any]) -> dict[str, Any]:
         self._assert_can_persist_status(payload)
@@ -219,8 +237,17 @@ class LocalizationService:
         if status not in {"reviewed", "approved"}:
             return
 
-        report = self.validation_service.assert_can_use_status(payload, status)
         metadata = payload.setdefault("metadata", {})
+        contract = self.active_contract_for_payload(payload, verify_payload_contract=True)
+        if contract is not None:
+            metadata["template_contract"] = contract.model_dump(mode="json")
+            payload["contract"] = metadata["template_contract"]
+
+        report = self.validation_service.assert_can_use_status(
+            payload,
+            status,
+            active_contract=contract,
+        )
         metadata["validation_report"] = report
 
         generation = (payload.get("metadata") or {}).get("rubric_generation") or {}
@@ -242,3 +269,38 @@ class LocalizationService:
             raise ValueError(
                 f"Status {status} bloqueado: modelo/provider usado difere do solicitado."
             )
+
+    def _active_contract_for_payload(self, payload: dict[str, Any]) -> RubricContract | None:
+        locale = payload.get("locale")
+        category = payload.get("category")
+        template_name = payload.get("template_name")
+        if locale and category:
+            try:
+                return self.get_template_contract(
+                    locale=locale,
+                    category=category,
+                    template_name=template_name,
+                ).contract
+            except FileNotFoundError:
+                if template_name:
+                    return self.get_template_contract(locale=locale, category=category).contract
+
+        metadata = payload.get("metadata") or {}
+        if metadata.get("template_contract"):
+            return RubricContract.model_validate(metadata["template_contract"])
+        return None
+
+    def _assert_payload_contract_matches(
+        self,
+        payload: dict[str, Any],
+        formal_contract: RubricContract,
+    ) -> None:
+        contract_payload = payload.get("contract")
+        if not contract_payload:
+            contract_payload = (payload.get("metadata") or {}).get("template_contract")
+        if not contract_payload:
+            return
+
+        provided_contract = RubricContract.model_validate(contract_payload)
+        if provided_contract.model_dump(mode="json") != formal_contract.model_dump(mode="json"):
+            raise ValueError("contract_mismatch: payload contract differs from formal template contract.")

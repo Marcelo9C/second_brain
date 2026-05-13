@@ -87,7 +87,9 @@ class RubricCaseCreate(BaseModel):
     @model_validator(mode="after")
     def validate_rubrics(self) -> "RubricCaseCreate":
         if self.status != "draft":
-            validate_rubric_payload(self.rubrics)
+            contract_payload = self.metadata.get("template_contract")
+            contract = RubricContract.model_validate(contract_payload) if contract_payload else None
+            validate_rubric_payload(self.rubrics, contract=contract)
         return self
 
 
@@ -115,6 +117,7 @@ class RubricValidationRequest(BaseModel):
     golden_response: str | None = None
     rubrics: Any = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    contract: dict[str, Any] | None = None
 
 
 class RubricCaseExportRequest(BaseModel):
@@ -132,10 +135,12 @@ class RubricGenerateRequest(BaseModel):
     response_raw: str | None = None
     golden_response: str | None = None
     base_template: list[dict[str, Any]]
+    contract: dict[str, Any] | None = None
     provider: str = "ollama"
     model: str | None = None
 
     @model_validator(mode="after")
     def validate_base_template(self) -> "RubricGenerateRequest":
-        validate_rubric_payload(self.base_template)
+        if not isinstance(self.base_template, list) or not self.base_template:
+            raise ValueError("base_template must be a non-empty JSON array.")
         return self

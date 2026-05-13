@@ -91,14 +91,29 @@ def export_rubric_cases_csv(payload: RubricCaseExportRequest) -> dict[str, objec
 @router.post("/rubrics/generate")
 def generate_rubrics(payload: RubricGenerateRequest) -> dict[str, object]:
     try:
-        return get_rubric_generation_service().generate(payload.model_dump())
+        data = payload.model_dump()
+        contract = get_localization_service().active_contract_for_payload(
+            data,
+            verify_payload_contract=True,
+        )
+        return get_rubric_generation_service().generate(data, active_contract=contract)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except RubricGenerationError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
 
 
 @router.post("/rubrics/validate")
 def validate_rubrics(payload: RubricValidationRequest) -> dict[str, object]:
-    return get_rubric_validation_service().validate_case(payload.model_dump())
+    data = payload.model_dump()
+    try:
+        contract = get_localization_service().active_contract_for_payload(
+            data,
+            verify_payload_contract=True,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return get_rubric_validation_service().validate_case(data, active_contract=contract)
 
 
 @router.get("/providers")

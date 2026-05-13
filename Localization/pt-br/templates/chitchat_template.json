@@ -17,7 +17,9 @@
       "integer_only": true
     },
     "expected_rubric_count": 5,
-    "requires_negative_rubric": true,
+    "negative_rubric_policy": {
+      "mode": "recommended"
+    },
     "requires_response_specific_when_context_exists": true,
     "quality_review_required": true,
     "required_fields": [

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 from app.main import app
 from app.dependencies import get_rubric_generation_service
+from app.schemas.rubric_contract import RubricContract, RubricWeightPolicy
 from app.services.rubric_generation_service import RubricGenerationService
 from app.services.providers.base_provider import BaseProvider, ProviderError, ProviderPrompt, ProviderResult
 
@@ -109,6 +110,38 @@ class LocalizationApiTest(unittest.TestCase):
         payload.update(overrides)
         return payload
 
+    def _contract(
+        self,
+        *,
+        dimension: str,
+        negative_min: int,
+        expected_rubric_count: int = 1,
+    ) -> dict:
+        return RubricContract(
+            allowed_dimensions=[dimension],
+            weight_policy=RubricWeightPolicy(
+                positive_min=1,
+                positive_max=10,
+                negative_min=negative_min,
+                negative_max=-1,
+                zero_allowed=False,
+                integer_only=True,
+            ),
+            expected_rubric_count=expected_rubric_count,
+            negative_rubric_policy={"mode": "recommended"},
+            requires_response_specific_when_context_exists=True,
+            quality_review_required=True,
+        ).model_dump(mode="json")
+
+    def _rubric(self, *, dimension: str, weight: int, title: str = "Synthetic") -> dict:
+        return {
+            "Rubric_dimensions": dimension,
+            "Rubric_title": title,
+            "Rubrics_description": "Synthetic rubric description for API contract validation.",
+            "Rubrics_weight": weight,
+            "is_response_specific": False,
+        }
+
     def test_empty_draft_generates_no_call(self):
         payload = self._ready_payload(response_raw="")
         response = self.client.post("/api/localization/rubrics/generate", json=payload)
@@ -201,6 +234,137 @@ class LocalizationApiTest(unittest.TestCase):
         self.assertIn("non-empty JSON array", data["metadata"]["validation_error"])
         self.assertEqual(data["metadata"]["provider_requested"], "fake")
         self.assertEqual(data["metadata"]["model_requested"], "fake-model")
+
+    def test_chitchat_contract_allows_negative_six_generation(self):
+        rubrics = [
+            self._rubric(dimension="Natural Language Fluency", weight=8, title="Natural Tone"),
+            self._rubric(dimension="Cultural Understanding and Application", weight=8, title="Tone Alignment"),
+            self._rubric(dimension="Natural Language Fluency", weight=7, title="Informal Language"),
+            self._rubric(dimension="Cultural Understanding and Application", weight=7, title="Social Awareness"),
+            self._rubric(dimension="Natural Language Fluency", weight=-6, title="Scripted Tone"),
+        ]
+        self.fake_provider.response_text = json.dumps(rubrics)
+
+        response = self.client.post(
+            "/api/localization/rubrics/generate",
+            json=self._ready_payload(
+                category="Chitchat",
+                base_template=rubrics,
+                model="fake-model",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["metadata"]["validation_status"], "valid")
+
+    def test_knowledge_contract_allows_negative_ten_generation(self):
+        rubrics = [
+            self._rubric(dimension="Facts and Local Knowledge", weight=10, title="Factual Accuracy"),
+            self._rubric(dimension="Facts and Local Knowledge", weight=10, title="Intent Interpretation"),
+            self._rubric(dimension="Facts and Local Knowledge", weight=8, title="Explanation Depth"),
+            self._rubric(dimension="Cultural Understanding and Application", weight=7, title="Actionable Guidance"),
+            self._rubric(dimension="Facts and Local Knowledge", weight=-10, title="Fabrication"),
+            self._rubric(dimension="Facts and Local Knowledge", weight=-10, title="Misinterpretation"),
+        ]
+        self.fake_provider.response_text = json.dumps(rubrics)
+
+        response = self.client.post(
+            "/api/localization/rubrics/generate",
+            json=self._ready_payload(
+                category="Knowledge",
+                base_template=rubrics,
+                model="fake-model",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["metadata"]["validation_status"], "valid")
+
+    def test_adulterated_negative_min_contract_does_not_relax_generation_validation(self):
+        rubrics = [
+            self._rubric(dimension="Natural Language Fluency", weight=8, title="Natural Tone"),
+            self._rubric(dimension="Cultural Understanding and Application", weight=8, title="Tone Alignment"),
+            self._rubric(dimension="Natural Language Fluency", weight=7, title="Informal Language"),
+            self._rubric(dimension="Cultural Understanding and Application", weight=7, title="Social Awareness"),
+            self._rubric(dimension="Natural Language Fluency", weight=-7, title="Scripted Tone"),
+        ]
+        self.fake_provider.response_text = json.dumps(rubrics)
+        adulterated_contract = self._contract(
+            dimension="Natural Language Fluency",
+            negative_min=-99,
+            expected_rubric_count=5,
+        )
+
+        response = self.client.post(
+            "/api/localization/rubrics/generate",
+            json=self._ready_payload(
+                category="Chitchat",
+                base_template=rubrics,
+                contract=adulterated_contract,
+                model="fake-model",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("contract_mismatch", response.json()["detail"])
+
+    def test_adulterated_dimension_contract_does_not_replace_formal_contract(self):
+        rubrics = [
+            self._rubric(dimension="Local Facts and Awareness", weight=10, title="Altered Dimension"),
+            self._rubric(dimension="Facts and Local Knowledge", weight=10, title="Intent Interpretation"),
+            self._rubric(dimension="Facts and Local Knowledge", weight=8, title="Explanation Depth"),
+            self._rubric(dimension="Cultural Understanding and Application", weight=7, title="Actionable Guidance"),
+            self._rubric(dimension="Facts and Local Knowledge", weight=-10, title="Fabrication"),
+            self._rubric(dimension="Facts and Local Knowledge", weight=-10, title="Misinterpretation"),
+        ]
+        self.fake_provider.response_text = json.dumps(rubrics)
+        adulterated_contract = self._contract(
+            dimension="Local Facts and Awareness",
+            negative_min=-10,
+            expected_rubric_count=6,
+        )
+
+        response = self.client.post(
+            "/api/localization/rubrics/generate",
+            json=self._ready_payload(
+                category="Knowledge",
+                base_template=rubrics,
+                contract=adulterated_contract,
+                model="fake-model",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("contract_mismatch", response.json()["detail"])
+
+    def test_formal_contract_error_message_wins_without_payload_contract(self):
+        rubrics = [
+            self._rubric(dimension="Natural Language Fluency", weight=8, title="Natural Tone"),
+            self._rubric(dimension="Cultural Understanding and Application", weight=8, title="Tone Alignment"),
+            self._rubric(dimension="Natural Language Fluency", weight=7, title="Informal Language"),
+            self._rubric(dimension="Cultural Understanding and Application", weight=7, title="Social Awareness"),
+            self._rubric(dimension="Natural Language Fluency", weight=-7, title="Scripted Tone"),
+        ]
+        self.fake_provider.response_text = json.dumps(rubrics)
+
+        response = self.client.post(
+            "/api/localization/rubrics/generate",
+            json=self._ready_payload(
+                category="Chitchat",
+                base_template=rubrics,
+                model="fake-model",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["success"])
+        self.assertEqual(data["metadata"]["validation_status"], "failed")
+        self.assertIn("between -6 and -1", data["metadata"]["validation_error"])
 
     def test_invalid_dimension_fails_validation(self):
         self.fake_provider.force_model_used = "fake-model"
@@ -361,7 +525,7 @@ class LocalizationApiTest(unittest.TestCase):
                 "is_response_specific": False,
             },
             {
-                "Rubric_dimensions": "Logic and Formatting",
+                "Rubric_dimensions": "Natural Language Fluency",
                 "Rubric_title": "Structure Fit",
                 "Rubrics_description": "Assesses whether the answer follows the expected structure for the task.",
                 "Rubrics_weight": 6,
@@ -375,14 +539,14 @@ class LocalizationApiTest(unittest.TestCase):
                 "is_response_specific": False,
             },
             {
-                "Rubric_dimensions": "Local Facts and Awareness",
+                "Rubric_dimensions": "Natural Language Fluency",
                 "Rubric_title": "Grounded Claim Handling",
                 "Rubrics_description": "Assesses whether factual claims stay grounded and avoid unsupported detail.",
                 "Rubrics_weight": 4,
                 "is_response_specific": False,
             },
             {
-                "Rubric_dimensions": "Logic and Formatting",
+                "Rubric_dimensions": "Cultural Understanding and Application",
                 "Rubric_title": "Unsupported Addition Penalty",
                 "Rubrics_description": "Penalizes unsupported additions that would reduce evaluation reliability.",
                 "Rubrics_weight": -3,

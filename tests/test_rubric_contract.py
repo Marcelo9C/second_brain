@@ -23,18 +23,21 @@ class RubricContractTest(unittest.TestCase):
 
         self.assertEqual(template.category, "Chitchat")
         self.assertEqual(template.contract.weight_policy.negative_min, -6)
+        self.assertEqual(template.contract.negative_rubric_policy.mode, "recommended")
 
     def test_writing_template_loads_with_contract(self) -> None:
         template = load_template("writing_template.json")
 
         self.assertEqual(template.category, "Writing")
         self.assertEqual(template.contract.weight_policy.negative_min, -7)
+        self.assertEqual(template.contract.negative_rubric_policy.mode, "recommended")
 
     def test_knowledge_template_loads_with_contract(self) -> None:
         template = load_template("knowledge_template.json")
 
         self.assertEqual(template.category, "Knowledge")
         self.assertEqual(template.contract.weight_policy.negative_min, -10)
+        self.assertEqual(template.contract.negative_rubric_policy.mode, "recommended")
 
     def test_expected_rubric_count_matches_slots_for_each_template(self) -> None:
         for path in TEMPLATE_DIR.glob("*.json"):
@@ -112,6 +115,24 @@ class RubricContractTest(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             TemplateContract.model_validate(payload)
+
+    def test_recommended_negative_policy_does_not_require_negative_slot(self) -> None:
+        payload = json.loads((TEMPLATE_DIR / "chitchat_template.json").read_text(encoding="utf-8"))
+        payload = copy.deepcopy(payload)
+        payload["contract"]["expected_rubric_count"] = 1
+        payload["rubric_slots"] = [
+            {
+                "Rubric_dimensions": "Natural Language Fluency",
+                "Rubric_title": "Positive Only",
+                "Rubrics_description": "Synthetic positive-only rubric for contract validation.",
+                "Rubrics_weight": 5,
+                "is_response_specific": False,
+            }
+        ]
+
+        template = TemplateContract.model_validate(payload)
+
+        self.assertEqual(template.contract.negative_rubric_policy.mode, "recommended")
 
 
 if __name__ == "__main__":

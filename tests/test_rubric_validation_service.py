@@ -1,5 +1,6 @@
 import unittest
 
+from app.schemas.rubric_contract import RubricContract, RubricWeightPolicy
 from app.services.rubric_validation_service import RubricValidationService
 
 
@@ -23,6 +24,30 @@ def valid_payload() -> dict:
         "rubrics": [valid_rubric()],
         "metadata": {},
     }
+
+
+def contract_for(*, dimension: str = "Natural Language Fluency", negative_min: int = -7, count: int = 1) -> dict:
+    return RubricContract(
+        allowed_dimensions=[dimension],
+        weight_policy=RubricWeightPolicy(
+            positive_min=1,
+            positive_max=10,
+            negative_min=negative_min,
+            negative_max=-1,
+            zero_allowed=False,
+            integer_only=True,
+        ),
+        expected_rubric_count=count,
+        negative_rubric_policy={"mode": "recommended"},
+        requires_response_specific_when_context_exists=True,
+        quality_review_required=True,
+    ).model_dump(mode="json")
+
+
+def contract_model(*, dimension: str = "Natural Language Fluency", negative_min: int = -7, count: int = 1) -> RubricContract:
+    return RubricContract.model_validate(
+        contract_for(dimension=dimension, negative_min=negative_min, count=count)
+    )
 
 
 class RubricValidationServiceTest(unittest.TestCase):
@@ -57,6 +82,59 @@ class RubricValidationServiceTest(unittest.TestCase):
         self.assertEqual(report["structureValidation"]["status"], "pass")
         self.assertEqual(report["formatValidation"]["status"], "fail")
         self.assertEqual(report["approvalReadiness"]["status"], "blocked")
+
+    def test_service_uses_contract_when_provided_for_negative_weight(self) -> None:
+        payload = valid_payload()
+        payload["rubrics"][0]["Rubrics_weight"] = -7
+
+        report = self.service.validate_case(
+            payload,
+            active_contract=contract_model(negative_min=-7),
+        )
+
+        self.assertEqual(report["structureValidation"]["status"], "pass")
+        self.assertEqual(report["formatValidation"]["status"], "pass")
+
+    def test_service_rejects_weight_outside_active_contract(self) -> None:
+        payload = valid_payload()
+        payload["rubrics"][0]["Rubrics_weight"] = -8
+
+        report = self.service.validate_case(
+            payload,
+            active_contract=contract_model(negative_min=-7),
+        )
+
+        self.assertEqual(report["formatValidation"]["status"], "fail")
+        self.assertIn("between -7 and -1", report["formatValidation"]["message"])
+
+    def test_service_uses_contract_dimension_instead_of_global_whitelist(self) -> None:
+        payload = valid_payload()
+        payload["category"] = "Knowledge"
+        payload["rubrics"][0]["Rubric_dimensions"] = "Facts and Local Knowledge"
+        payload["rubrics"][0]["Rubrics_weight"] = -10
+
+        report = self.service.validate_case(
+            payload,
+            active_contract=contract_model(
+                dimension="Facts and Local Knowledge",
+                negative_min=-10,
+            ),
+        )
+
+        self.assertEqual(report["formatValidation"]["status"], "pass")
+
+    def test_recommended_negative_policy_does_not_block_approval_without_negative_rubric(self) -> None:
+        payload = valid_payload()
+        payload["metadata"] = {"human_quality_reviewed": True}
+
+        report = self.service.validate_case(
+            payload,
+            active_contract=contract_model(negative_min=-7),
+        )
+
+        self.assertEqual(report["formatValidation"]["status"], "pass")
+        self.assertEqual(report["qualityValidation"]["status"], "pass")
+        self.assertEqual(report["approvalReadiness"]["status"], "pass")
 
     def test_quality_is_pending_by_default(self) -> None:
         report = self.service.validate_case(valid_payload())

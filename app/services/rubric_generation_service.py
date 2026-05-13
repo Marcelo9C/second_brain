@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.schemas.localization import REQUIRED_RUBRIC_FIELDS, validate_rubric_payload
+from app.schemas.rubric_contract import RubricContract
 from app.services.providers.base_provider import BaseProvider, ProviderError, ProviderPrompt
 from app.services.localization_workflow_engine import (
     CaseStateSnapshot,
@@ -34,7 +35,12 @@ class RubricGenerationService:
         self.default_provider = default_provider
         self.workflow_engine = workflow_engine or WorkflowDecisionEngine()
 
-    def generate(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def generate(
+        self,
+        payload: dict[str, Any],
+        *,
+        active_contract: RubricContract | None = None,
+    ) -> dict[str, Any]:
         workflow_decision = self.workflow_engine.resolve(
             WorkflowIntent.GENERATE_WITH_AI,
             CaseStateSnapshot.from_payload(payload),
@@ -126,7 +132,8 @@ class RubricGenerationService:
                 "workflow_decision": blocked_decision,
             }
 
-        prompt = self._build_prompt(payload)
+        contract = active_contract
+        prompt = self._build_prompt(payload, contract=contract)
         prompt_text = prompt.as_text() if isinstance(prompt, ProviderPrompt) else str(prompt)
         
         metadata = {
@@ -216,8 +223,8 @@ class RubricGenerationService:
         metadata["workflow_decision"] = workflow_decision.to_dict()
 
         try:
-            rubrics = self._extract_rubrics(provider_result.text)
-            validation = self._validate_generated_rubrics(rubrics)
+            rubrics = self._extract_rubrics(provider_result.text, contract=contract)
+            validation = self._validate_generated_rubrics(rubrics, contract=contract)
         except RubricGenerationError as error:
             self._log_generation(provider_result.provider_used, provider_result.model_used, "failed")
             return {
@@ -310,7 +317,12 @@ class RubricGenerationService:
             }
         return None
 
-    def _build_prompt(self, payload: dict[str, Any]) -> ProviderPrompt:
+    def _build_prompt(
+        self,
+        payload: dict[str, Any],
+        *,
+        contract: RubricContract | None = None,
+    ) -> ProviderPrompt:
         case_payload = {
             "locale": payload.get("locale"),
             "category": payload.get("category"),
@@ -320,6 +332,39 @@ class RubricGenerationService:
             "golden_response_excerpt": self._truncate(payload.get("golden_response"), 1800),
             "base_template": payload.get("base_template"),
         }
+        dimension_lines = (
+            "\n".join(f"  - {dimension!r}" for dimension in contract.allowed_dimensions)
+            if contract
+            else (
+                "  - 'Cultural Understanding and Application'\n"
+                "  - 'Local Facts and Awareness'\n"
+                "  - 'Logic and Formatting'\n"
+                "  - 'Natural Language Fluency'"
+            )
+        )
+        if contract:
+            weight_policy = contract.weight_policy
+            integer_text = "integer " if weight_policy.integer_only else ""
+            zero_text = (
+                "0 is allowed only when it fits the active contract."
+                if weight_policy.zero_allowed
+                else "Never use 0."
+            )
+            weight_lines = (
+                f"Rubrics_weight values must follow the active template contract: "
+                f"positive {integer_text}weights from {weight_policy.positive_min} to {weight_policy.positive_max}, "
+                f"or negative {integer_text}weights from {weight_policy.negative_min} to {weight_policy.negative_max}.\n"
+                f"{zero_text}\n"
+                f"Never use weights below {weight_policy.negative_min} or above {weight_policy.positive_max}."
+            )
+        else:
+            # Legacy fallback only for records/templates without formal RubricContract.
+            weight_lines = (
+                "Rubrics_weight values must be from -5 to 10, except 0.\n"
+                "Use only integer weights from -5 to -1 for penalties, or 1 to 10 for positive criteria.\n"
+                "Never use 0.\n"
+                "Never use weights below -5 or above 10."
+            )
         system_contract = (
             "SYSTEM CONTRACT\n"
             "You are an expert evaluator for Localization Trial tasks.\n"
@@ -350,17 +395,11 @@ class RubricGenerationService:
             "Use exactly these keys: Rubric_dimensions, Rubric_title, Rubrics_description, "
             "Rubrics_weight, is_response_specific.\n"
             "Rubric_dimensions MUST be exactly one of the following strings:\n"
-            "  - 'Cultural Understanding and Application'\n"
-            "  - 'Local Facts and Awareness'\n"
-            "  - 'Logic and Formatting'\n"
-            "  - 'Natural Language Fluency'\n"
+            f"{dimension_lines}\n"
             "Do not add extra keys.\n"
-            "Rubrics_weight values must be from -5 to 10, except 0.\n"
+            f"{weight_lines}\n"
             "Rubrics_weight is schema-critical.\n"
             "Invalid weights cause the entire generation to be rejected.\n"
-            "Use only integer weights from -5 to -1 for penalties, or 1 to 10 for positive criteria.\n"
-            "Never use 0.\n"
-            "Never use weights below -5 or above 10.\n"
             "Use positive weights for desirable behavior and negative weights for penalties."
         )
         task_payload = (
@@ -374,10 +413,15 @@ class RubricGenerationService:
         )
         return ProviderPrompt(system_contract=system_contract, task_payload=task_payload)
 
-    def _extract_rubrics(self, raw_response: str) -> list[dict[str, Any]]:
+    def _extract_rubrics(
+        self,
+        raw_response: str,
+        *,
+        contract: RubricContract | None = None,
+    ) -> list[dict[str, Any]]:
         try:
             parsed = json.loads(raw_response)
-            validate_rubric_payload(parsed)
+            validate_rubric_payload(parsed, contract=contract)
             return parsed
         except Exception:
             pass
@@ -394,34 +438,50 @@ class RubricGenerationService:
             raise RubricGenerationError(f"Generated rubric JSON is invalid: {error.msg}.") from error
 
         try:
-            validate_rubric_payload(parsed)
+            validate_rubric_payload(parsed, contract=contract)
         except ValueError as error:
             raise RubricGenerationError(str(error)) from error
             
         return parsed
 
-    def _validate_generated_rubrics(self, rubrics: list[dict[str, Any]]) -> dict[str, Any]:
+    def _validate_generated_rubrics(
+        self,
+        rubrics: list[dict[str, Any]],
+        *,
+        contract: RubricContract | None = None,
+    ) -> dict[str, Any]:
         messages: list[str] = []
         try:
-            validate_rubric_payload(rubrics)
+            validate_rubric_payload(rubrics, contract=contract)
         except ValueError as e:
             raise RubricGenerationError(str(e)) from e
 
         for index, rubric in enumerate(rubrics, start=1):
-            missing = sorted(REQUIRED_RUBRIC_FIELDS - set(rubric.keys()))
+            required_fields = contract.required_fields if contract else REQUIRED_RUBRIC_FIELDS
+            missing = sorted(required_fields - set(rubric.keys()))
             if missing:
                 messages.append(f"Rubric {index} is missing: {', '.join(missing)}.")
 
             weight = rubric.get("Rubrics_weight")
-            if not isinstance(weight, (int, float)):
-                messages.append(f"Rubric {index} weight must be numeric.")
-                continue
+            if contract:
+                try:
+                    contract.weight_policy.validate_weight(
+                        weight,
+                        label=f"Rubric {index} weight",
+                    )
+                except ValueError as error:
+                    messages.append(str(error))
+            else:
+                # Legacy fallback only for records/templates without formal RubricContract.
+                if not isinstance(weight, (int, float)):
+                    messages.append(f"Rubric {index} weight must be numeric.")
+                    continue
 
-            if weight < 0:
-                if not -5 <= weight <= -1:
-                    messages.append(f"Rubric {index} negative weight must be between -5 and -1.")
-            elif not 1 <= weight <= 10:
-                messages.append(f"Rubric {index} positive weight must be between 1 and 10.")
+                if weight < 0:
+                    if not -5 <= weight <= -1:
+                        messages.append(f"Rubric {index} negative weight must be between -5 and -1.")
+                elif not 1 <= weight <= 10:
+                    messages.append(f"Rubric {index} positive weight must be between 1 and 10.")
 
         if messages:
             raise RubricGenerationError(" ".join(messages))

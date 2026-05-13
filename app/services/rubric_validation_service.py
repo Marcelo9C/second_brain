@@ -3,30 +3,31 @@ from __future__ import annotations
 from typing import Any
 
 from app.schemas.localization import ACCEPTED_RUBRIC_DIMENSIONS
+from app.schemas.rubric_contract import DEFAULT_REQUIRED_RUBRIC_FIELDS, RubricContract
 from app.services.rubric_quality_heuristic_service import RubricQualityHeuristicService
 
 
-REQUIRED_RUBRIC_FIELDS = {
-    "Rubric_dimensions",
-    "Rubric_title",
-    "Rubrics_description",
-    "Rubrics_weight",
-    "is_response_specific",
-}
+REQUIRED_RUBRIC_FIELDS = set(DEFAULT_REQUIRED_RUBRIC_FIELDS)
 
 
 class RubricValidationService:
     def __init__(self, quality_heuristics: RubricQualityHeuristicService | None = None) -> None:
         self.quality_heuristics = quality_heuristics or RubricQualityHeuristicService()
 
-    def validate_case(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def validate_case(
+        self,
+        payload: dict[str, Any],
+        *,
+        active_contract: RubricContract | None = None,
+    ) -> dict[str, Any]:
         rubrics = payload.get("rubrics")
         metadata = payload.get("metadata") or {}
-        structure = self.structure_validation(rubrics)
-        format_result = self.format_validation(rubrics, structure)
+        contract = active_contract
+        structure = self.structure_validation(rubrics, contract=contract)
+        format_result = self.format_validation(rubrics, structure, contract=contract)
         quality_heuristics = self.quality_heuristics.evaluate(payload, structure, format_result)
         quality = self.quality_validation(metadata, structure, format_result)
-        approval = self.approval_readiness(payload, structure, format_result, quality)
+        approval = self.approval_readiness(payload, structure, format_result, quality, contract=contract)
 
         return {
             "structureValidation": structure,
@@ -36,7 +37,12 @@ class RubricValidationService:
             "approvalReadiness": approval,
         }
 
-    def structure_validation(self, rubrics: Any) -> dict[str, Any]:
+    def structure_validation(
+        self,
+        rubrics: Any,
+        *,
+        contract: RubricContract | None = None,
+    ) -> dict[str, Any]:
         if not isinstance(rubrics, list) or not rubrics:
             return self._result(
                 "fail",
@@ -46,12 +52,13 @@ class RubricValidationService:
             )
 
         issues: list[str] = []
+        required_fields = contract.required_fields if contract else REQUIRED_RUBRIC_FIELDS
         for index, item in enumerate(rubrics, start=1):
             if not isinstance(item, dict) or isinstance(item, list):
                 issues.append(f"Item {index}: must be an object.")
                 continue
 
-            missing = sorted(REQUIRED_RUBRIC_FIELDS - set(item.keys()))
+            missing = sorted(required_fields - set(item.keys()))
             if missing:
                 issues.append(f"Item {index}: missing {', '.join(missing)}.")
 
@@ -64,7 +71,13 @@ class RubricValidationService:
             count=len(rubrics),
         )
 
-    def format_validation(self, rubrics: Any, structure: dict[str, Any]) -> dict[str, Any]:
+    def format_validation(
+        self,
+        rubrics: Any,
+        structure: dict[str, Any],
+        *,
+        contract: RubricContract | None = None,
+    ) -> dict[str, Any]:
         if structure["status"] != "pass":
             return self._result(
                 "pending",
@@ -78,7 +91,10 @@ class RubricValidationService:
             dimension = rubric.get("Rubric_dimensions")
             if not isinstance(dimension, str) or not dimension.strip():
                 issues.append(f"Item {index}: Rubric_dimensions must be non-empty text.")
-            elif dimension not in ACCEPTED_RUBRIC_DIMENSIONS:
+            elif contract and dimension not in contract.allowed_dimensions:
+                issues.append(f"Item {index}: Rubric_dimensions is not accepted by active contract.")
+            # Legacy fallback only for records/templates without formal RubricContract.
+            elif not contract and dimension not in ACCEPTED_RUBRIC_DIMENSIONS:
                 issues.append(f"Item {index}: Rubric_dimensions is not accepted.")
 
             title = rubric.get("Rubric_title")
@@ -94,10 +110,20 @@ class RubricValidationService:
                 issues.append(f"Item {index}: Rubrics_description is too short to assess.")
 
             weight = rubric.get("Rubrics_weight")
-            if not isinstance(weight, (int, float)) or isinstance(weight, bool):
-                issues.append(f"Item {index}: Rubrics_weight must be numeric.")
-            elif weight < -5 or weight > 10 or weight == 0:
-                issues.append(f"Item {index}: Rubrics_weight is outside the configured scale.")
+            if contract:
+                try:
+                    contract.weight_policy.validate_weight(
+                        weight,
+                        label=f"Item {index}: Rubrics_weight",
+                    )
+                except ValueError as error:
+                    issues.append(str(error))
+            else:
+                # Legacy fallback only for records/templates without formal RubricContract.
+                if not isinstance(weight, (int, float)) or isinstance(weight, bool):
+                    issues.append(f"Item {index}: Rubrics_weight must be numeric.")
+                elif weight < -5 or weight > 10 or weight == 0:
+                    issues.append(f"Item {index}: Rubrics_weight is outside the configured scale.")
 
             if not isinstance(rubric.get("is_response_specific"), bool):
                 issues.append(f"Item {index}: is_response_specific must be true or false.")
@@ -142,6 +168,8 @@ class RubricValidationService:
         structure: dict[str, Any],
         format_result: dict[str, Any],
         quality: dict[str, Any],
+        *,
+        contract: RubricContract | None = None,
     ) -> dict[str, Any]:
         missing_case_fields = [
             field
@@ -164,10 +192,25 @@ class RubricValidationService:
                     blocking=True,
                 )
 
+        if contract:
+            rubrics = payload.get("rubrics")
+            if isinstance(rubrics, list):
+                if len(rubrics) != contract.expected_rubric_count:
+                    return self._result(
+                        "blocked",
+                        "Approval blocked: rubric count does not match active contract.",
+                        blocking=True,
+                    )
         return self._result("pass", "Rubrics ready for approval.")
 
-    def assert_can_use_status(self, payload: dict[str, Any], status: str) -> dict[str, Any]:
-        report = self.validate_case(payload)
+    def assert_can_use_status(
+        self,
+        payload: dict[str, Any],
+        status: str,
+        *,
+        active_contract: RubricContract | None = None,
+    ) -> dict[str, Any]:
+        report = self.validate_case(payload, active_contract=active_contract)
         if status == "reviewed" and report["qualityValidation"]["status"] != "pass":
             raise ValueError("Status reviewed blocked: quality review is pending or failing.")
         if status == "approved" and report["approvalReadiness"]["status"] != "pass":
