@@ -212,6 +212,22 @@
 
             <div id="validation-layers" class="diagnostics-grid"></div>
 
+            <section id="quality-heuristics" class="quality-heuristics-panel pending" aria-labelledby="quality-heuristics-title">
+              <div class="quality-heuristics-header">
+                <div>
+                  <span class="panel-kicker">Quality warnings</span>
+                  <h3 id="quality-heuristics-title">Alertas de qualidade</h3>
+                </div>
+                <span id="quality-heuristics-status" class="badge neutral">pending</span>
+              </div>
+              <p id="quality-heuristics-message">Quality heuristics pending until structure and format pass.</p>
+              <ul id="quality-heuristics-messages" class="quality-heuristics-messages"></ul>
+              <details id="quality-heuristics-signals" class="quality-heuristics-signals">
+                <summary>Signals</summary>
+                <dl id="quality-heuristics-signal-list"></dl>
+              </details>
+            </section>
+
             <div id="ai-warning" class="embedding-summary">
               Rubrics geradas por IA devem ser revisadas antes da aprovação.
             </div>

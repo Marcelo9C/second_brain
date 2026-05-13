@@ -24,6 +24,7 @@ const state = {
   lastRawModelResponse: null,
   humanQualityReviewed: false,
   lastValidationReport: null,
+  backendValidationRequestId: 0,
 };
 
 const API_BASE =
@@ -54,6 +55,12 @@ const elements = {
   editorStateSummary: document.querySelector("#editor-state-summary"),
   validationOutput: document.querySelector("#validation-output"),
   validationLayers: document.querySelector("#validation-layers"),
+  qualityHeuristics: document.querySelector("#quality-heuristics"),
+  qualityHeuristicsStatus: document.querySelector("#quality-heuristics-status"),
+  qualityHeuristicsMessage: document.querySelector("#quality-heuristics-message"),
+  qualityHeuristicsMessages: document.querySelector("#quality-heuristics-messages"),
+  qualityHeuristicsSignals: document.querySelector("#quality-heuristics-signals"),
+  qualityHeuristicsSignalList: document.querySelector("#quality-heuristics-signal-list"),
   generateRubrics: document.querySelector("#generate-rubrics"),
   copyJson: document.querySelector("#copy-json"),
   aiWarning: document.querySelector("#ai-warning"),
@@ -884,8 +891,60 @@ function renderValidation() {
   renderEditorState(result);
   renderRubricCards(result.rubrics);
   renderValidationLayers(result.report);
+  renderQualityHeuristics(result.report?.qualityHeuristics);
+  requestBackendQualityHeuristics(result);
   updateActionStates(result.report);
   return result;
+}
+
+function requestBackendQualityHeuristics(result) {
+  const requestId = ++state.backendValidationRequestId;
+  const structureOk = result.report?.structureValidation?.status === "pass";
+  const formatOk = result.report?.formatValidation?.status === "pass";
+
+  if (!Array.isArray(result.rubrics) || !structureOk || !formatOk) {
+    renderQualityHeuristics({
+      status: "pending",
+      blocking: false,
+      messages: ["Quality heuristics pending until structure and format pass."],
+      signals: {
+        rubric_count: Array.isArray(result.rubrics) ? result.rubrics.length : 0,
+      },
+    });
+    return;
+  }
+
+  fetchJson("/api/localization/rubrics/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      locale: elements.localeSelect.value,
+      category: elements.categorySelect.value,
+      prompt: elements.prompt.value.trim() || null,
+      response_raw: elements.responseRaw.value.trim() || null,
+      golden_response: elements.goldenResponse.value.trim() || null,
+      rubrics: result.rubrics,
+      metadata: {
+        human_quality_reviewed: state.humanQualityReviewed,
+      },
+    }),
+  })
+    .then((report) => {
+      if (requestId !== state.backendValidationRequestId) {
+        return;
+      }
+      state.lastValidationReport = {
+        ...state.lastValidationReport,
+        qualityHeuristics: report.qualityHeuristics,
+      };
+      renderQualityHeuristics(report.qualityHeuristics);
+    })
+    .catch(() => {
+      if (requestId !== state.backendValidationRequestId) {
+        return;
+      }
+      renderQualityHeuristics();
+    });
 }
 
 function renderRubricCards(rubrics) {
@@ -1069,6 +1128,78 @@ function renderValidationLayers(report) {
     item.append(label, value);
     elements.validationLayers.appendChild(item);
   }
+}
+
+function renderQualityHeuristics(qualityHeuristics) {
+  const result = qualityHeuristics || {
+    status: "pending",
+    messages: ["Quality heuristics pending until backend validation runs."],
+    signals: {},
+  };
+  const status = result.status || "pending";
+  const signals = result.signals || {};
+  elements.qualityHeuristics.classList.remove("pass", "warning", "pending");
+  elements.qualityHeuristics.classList.add(status);
+  elements.qualityHeuristicsStatus.className = `badge ${status === "pass" ? "ok" : status === "warning" ? "warning" : "neutral"}`;
+  elements.qualityHeuristicsStatus.textContent = status;
+  elements.qualityHeuristicsMessages.innerHTML = "";
+  elements.qualityHeuristicsSignalList.innerHTML = "";
+
+  if (status === "pass") {
+    elements.qualityHeuristicsMessage.textContent = "No quality warnings.";
+  } else if (status === "warning") {
+    elements.qualityHeuristicsMessage.textContent =
+      "Esses alertas não bloqueiam o draft, mas indicam pontos que devem ser revisados antes de marcar como reviewed.";
+    for (const message of result.messages || []) {
+      const item = document.createElement("li");
+      item.textContent = message;
+      elements.qualityHeuristicsMessages.appendChild(item);
+    }
+  } else {
+    elements.qualityHeuristicsMessage.textContent =
+      result.messages?.[0] || "Quality heuristics pending until backend validation runs.";
+  }
+
+  const signalEntries = qualitySignalEntries(signals);
+  elements.qualityHeuristicsSignals.hidden = signalEntries.length === 0;
+  for (const [label, value] of signalEntries) {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const description = document.createElement("dd");
+    description.textContent = value;
+    elements.qualityHeuristicsSignalList.append(term, description);
+  }
+}
+
+function qualitySignalEntries(signals) {
+  const keys = [
+    ["rubric_count", "Rubrics"],
+    ["has_negative_rubric", "Has negative rubric"],
+    ["has_response_specific_rubric", "Has response-specific rubric"],
+    ["weight_distribution", "Weights"],
+    ["possible_overlap_count", "Possible overlaps"],
+    ["unsupported_inference_count", "Unsupported inference signals"],
+    ["dominant_dimension", "Dominant dimension"],
+  ];
+  return keys
+    .filter(([key]) => Object.prototype.hasOwnProperty.call(signals, key))
+    .map(([key, label]) => [label, formatQualitySignal(signals[key])]);
+}
+
+function formatQualitySignal(value) {
+  if (Array.isArray(value)) {
+    return value.join(", ") || "none";
+  }
+  if (value === true) {
+    return "yes";
+  }
+  if (value === false) {
+    return "no";
+  }
+  if (value === null || value === undefined || value === "") {
+    return "none";
+  }
+  return String(value);
 }
 
 function updateActionStates(report = state.lastValidationReport) {
