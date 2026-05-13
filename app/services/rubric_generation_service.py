@@ -326,6 +326,8 @@ class RubricGenerationService:
             "When case-specific contextual cues are present, include at least one response-specific rubric.\n"
             "Use varied weights that reflect actual importance; do not assign all rubrics high positive weights.\n"
             "Compare the prompt, response_raw, Golden Response excerpt, locale, category, and chat history when deciding coverage.\n"
+            "Reflect meaningful differences between response_raw and the Golden Response excerpt when they matter.\n"
+            "Do not infer repeated behavior, prior relationships, identity details, or user preferences unless the case data supports them.\n"
             "Do not invent context that is not supported by the provided case data.\n"
             "Use English for all field values.\n"
             "Do not copy the full Golden Response.\n\n"

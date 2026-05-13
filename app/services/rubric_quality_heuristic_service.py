@@ -34,6 +34,18 @@ class RubricQualityHeuristicService:
         "to",
         "with",
     }
+    _GENERIC_ANCHOR_TOKENS = {
+        "appropriate",
+        "clear",
+        "correct",
+        "good",
+        "natural",
+        "prompt",
+        "quality",
+        "relevant",
+        "response",
+        "user",
+    }
     _UNSUPPORTED_INFERENCE_TERMS = (
         "repeatedly",
         "always",
@@ -41,6 +53,9 @@ class RubricQualityHeuristicService:
         "again",
         "as mentioned earlier",
         "from previous interactions",
+        "misnaming",
+        "called the user",
+        "prior preference",
     )
     _CONTEXT_CUE_TERMS = (
         "named entity",
@@ -80,6 +95,7 @@ class RubricQualityHeuristicService:
             }
 
         rubric_list = rubrics if isinstance(rubrics, list) else []
+        rubric_count = len(rubric_list)
         messages: list[str] = []
         weights = [rubric.get("Rubrics_weight") for rubric in rubric_list]
         numeric_weights = [
@@ -94,14 +110,34 @@ class RubricQualityHeuristicService:
         ]
         dimension_distribution = dict(Counter(dimensions))
         possible_overlap_count = self._possible_overlap_count(rubric_list)
+        generic_rubric_count = self._generic_rubric_count(payload, rubric_list)
         unsupported_inference_count = self._unsupported_inference_count(payload, rubric_list)
         contextual_cue_detected = self._has_contextual_cue(payload)
+        response_pair_differs = self._response_pair_has_meaningful_difference(payload)
         has_response_specific_rubric = any(
             rubric.get("is_response_specific") is True for rubric in rubric_list
         )
         dominant_dimension = self._dominant_dimension(dimension_distribution)
-
-        rubric_count = len(rubric_list)
+        high_weight_concentration = self._weights_are_concentrated(numeric_weights)
+        response_comparison_signal = self._response_comparison_signal(
+            response_pair_differs=response_pair_differs,
+            has_response_specific_rubric=has_response_specific_rubric,
+            generic_rubric_count=generic_rubric_count,
+            rubric_count=rubric_count,
+        )
+        category_coverage_signal = self._category_coverage_signal(
+            payload,
+            rubric_count,
+            dimension_distribution,
+            dominant_dimension,
+        )
+        has_negative_rubric = any(weight < 0 for weight in numeric_weights)
+        missing_useful_penalty = self._missing_useful_penalty(
+            has_negative_rubric=has_negative_rubric,
+            response_pair_differs=response_pair_differs,
+            contextual_cue_detected=contextual_cue_detected,
+            category_coverage_signal=category_coverage_signal,
+        )
         if rubric_count < self.MIN_RECOMMENDED_RUBRICS:
             messages.append(
                 f"Only {rubric_count} rubrics generated; expected at least "
@@ -112,12 +148,11 @@ class RubricQualityHeuristicService:
                 f"{rubric_count} rubrics generated; consider whether the set is too large to remain practical."
             )
 
-        if self._weights_are_concentrated(numeric_weights):
+        if high_weight_concentration:
             messages.append(
                 "Weight distribution is too concentrated; consider using more discriminative weights."
             )
 
-        has_negative_rubric = any(weight < 0 for weight in numeric_weights)
         if not has_negative_rubric:
             messages.append(
                 "No negative rubric found; consider adding a penalty for common failure modes if applicable."
@@ -128,9 +163,25 @@ class RubricQualityHeuristicService:
                 f"Potential overlap detected in {possible_overlap_count} rubric pair(s)."
             )
 
+        if self._genericity_warning_applies(
+            rubric_count=rubric_count,
+            generic_rubric_count=generic_rubric_count,
+            has_response_specific_rubric=has_response_specific_rubric,
+            response_pair_differs=response_pair_differs,
+            contextual_cue_detected=contextual_cue_detected,
+        ):
+            messages.append(
+                "Many rubrics appear generic for a case with contextual or response-specific signals."
+            )
+
         if contextual_cue_detected and not has_response_specific_rubric:
             messages.append(
                 "Contextual cues detected, but no response-specific rubric was found."
+            )
+
+        if response_comparison_signal == "weak":
+            messages.append(
+                "Response comparison appears weak; consider rubrics that reflect meaningful differences between response_raw and golden_response."
             )
 
         if unsupported_inference_count:
@@ -139,6 +190,11 @@ class RubricQualityHeuristicService:
         if self._is_dimension_concentrated(rubric_count, dimension_distribution):
             messages.append(
                 "Rubrics are concentrated in one dimension; consider broader coverage if relevant."
+            )
+
+        if category_coverage_signal == "low":
+            messages.append(
+                "Category coverage appears narrow for the case; consider broader coverage if relevant."
             )
 
         return {
@@ -150,9 +206,16 @@ class RubricQualityHeuristicService:
                 "has_negative_rubric": has_negative_rubric,
                 "has_response_specific_rubric": has_response_specific_rubric,
                 "weight_distribution": numeric_weights,
+                "high_weight_concentration": high_weight_concentration,
+                "missing_useful_penalty": missing_useful_penalty,
                 "possible_overlap_count": possible_overlap_count,
+                "redundant_pair_count": possible_overlap_count,
+                "generic_rubric_count": generic_rubric_count,
                 "unsupported_inference_count": unsupported_inference_count,
                 "contextual_cue_detected": contextual_cue_detected,
+                "response_pair_differs": response_pair_differs,
+                "response_comparison_signal": response_comparison_signal,
+                "category_coverage_signal": category_coverage_signal,
                 "dominant_dimension": dominant_dimension,
                 "dimension_distribution": dimension_distribution,
             },
@@ -185,6 +248,36 @@ class RubricQualityHeuristicService:
                     count += 1
         return count
 
+    def _generic_rubric_count(
+        self,
+        payload: dict[str, Any],
+        rubrics: list[dict[str, Any]],
+    ) -> int:
+        case_tokens = self._specific_tokens(self._case_text(payload))
+        count = 0
+        for rubric in rubrics:
+            text = f"{rubric.get('Rubric_title', '')} {rubric.get('Rubrics_description', '')}"
+            rubric_tokens = self._specific_tokens(text)
+            anchored_tokens = rubric_tokens & case_tokens
+            if rubric.get("is_response_specific") is not True and len(anchored_tokens) <= 1:
+                count += 1
+        return count
+
+    def _genericity_warning_applies(
+        self,
+        *,
+        rubric_count: int,
+        generic_rubric_count: int,
+        has_response_specific_rubric: bool,
+        response_pair_differs: bool,
+        contextual_cue_detected: bool,
+    ) -> bool:
+        if rubric_count < 3:
+            return False
+        many_generic = generic_rubric_count / rubric_count >= 0.6
+        needs_case_anchor = response_pair_differs or contextual_cue_detected
+        return many_generic and needs_case_anchor and not has_response_specific_rubric
+
     def _unsupported_inference_count(
         self,
         payload: dict[str, Any],
@@ -212,6 +305,64 @@ class RubricQualityHeuristicService:
         if self._has_named_entity_phrase(case_text):
             return True
         return self._response_pair_has_meaningful_difference(payload)
+
+    def _response_comparison_signal(
+        self,
+        *,
+        response_pair_differs: bool,
+        has_response_specific_rubric: bool,
+        generic_rubric_count: int,
+        rubric_count: int,
+    ) -> str:
+        if not response_pair_differs:
+            return "not_applicable"
+        if has_response_specific_rubric:
+            return "present"
+        if rubric_count and generic_rubric_count / rubric_count >= 0.5:
+            return "weak"
+        return "partial"
+
+    def _category_coverage_signal(
+        self,
+        payload: dict[str, Any],
+        rubric_count: int,
+        dimension_distribution: dict[str, int],
+        dominant_dimension: str | None,
+    ) -> str:
+        if rubric_count < 4 or not dominant_dimension:
+            return "not_applicable"
+        concentration = dimension_distribution[dominant_dimension] / rubric_count
+        case_text = self._case_text(payload).lower()
+        relevant_case_complexity = any(
+            term in case_text
+            for term in (
+                "format",
+                "constraint",
+                "fact",
+                "local",
+                "style",
+                "tone",
+                "instruction",
+                "culture",
+                "slang",
+                "chat history",
+            )
+        )
+        if concentration >= self.DIMENSION_CONCENTRATION_THRESHOLD and relevant_case_complexity:
+            return "low"
+        return "adequate"
+
+    def _missing_useful_penalty(
+        self,
+        *,
+        has_negative_rubric: bool,
+        response_pair_differs: bool,
+        contextual_cue_detected: bool,
+        category_coverage_signal: str,
+    ) -> bool:
+        if has_negative_rubric:
+            return False
+        return response_pair_differs or contextual_cue_detected or category_coverage_signal == "low"
 
     def _chat_history_has_content(self, chat_history: Any) -> bool:
         if isinstance(chat_history, list):
@@ -269,4 +420,11 @@ class RubricQualityHeuristicService:
             token
             for token in normalized.split()
             if len(token) > 2 and token not in self._STOPWORDS
+        }
+
+    def _specific_tokens(self, value: Any) -> set[str]:
+        return {
+            token
+            for token in self._tokens(value)
+            if token not in self._GENERIC_ANCHOR_TOKENS
         }

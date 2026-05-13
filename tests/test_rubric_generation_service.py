@@ -130,6 +130,8 @@ class RubricGenerationServiceTest(unittest.TestCase):
         self.assertIn("Rubrics_weight values must be from -5 to 10, except 0.", prompt)
         self.assertIn("atomic", prompt)
         self.assertIn("non-overlapping", prompt)
+        self.assertIn("Reflect meaningful differences between response_raw and the Golden Response excerpt", prompt)
+        self.assertIn("Do not infer repeated behavior", prompt)
 
     def test_generated_rubric_validation_uses_official_weight_scale(self) -> None:
         service = self.service(FakeProvider())

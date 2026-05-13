@@ -69,7 +69,12 @@ class RubricQualityHeuristicServiceTest(unittest.TestCase):
             rubric("Criterion Four", "Assesses a failure mode in the response.", -3),
         ]
 
-        report = self.evaluate(payload(rubrics=rubrics))
+        report = self.evaluate(
+            payload(
+                rubrics=rubrics,
+                prompt="Synthetic prompt with explicit tone and style requirements.",
+            )
+        )
 
         self.assertEqual(report["status"], "warning")
         self.assertFalse(report["blocking"])
@@ -82,7 +87,12 @@ class RubricQualityHeuristicServiceTest(unittest.TestCase):
             for index in range(16)
         ]
 
-        report = self.evaluate(payload(rubrics=rubrics))
+        report = self.evaluate(
+            payload(
+                rubrics=rubrics,
+                prompt="Synthetic prompt with explicit tone and style requirements.",
+            )
+        )
 
         self.assertIn("16 rubrics generated", " ".join(report["messages"]))
 
@@ -180,6 +190,95 @@ class RubricQualityHeuristicServiceTest(unittest.TestCase):
         self.assertIn("Potential unsupported inference", " ".join(report["messages"]))
         self.assertEqual(report["signals"]["unsupported_inference_count"], 1)
 
+    def test_warns_for_unsupported_misnaming_inference(self) -> None:
+        rubrics = [
+            rubric(
+                "Repeated Naming Issue",
+                "Penalizes repeated misnaming when referring to the user.",
+                -3,
+            ),
+            rubric("Clarity", "Assesses whether the response is clear and useful.", 6),
+            rubric("Tone", "Assesses whether the response uses an appropriate tone.", 5),
+            rubric("Relevance", "Assesses whether the response stays relevant to the prompt.", 5),
+            rubric("Formatting", "Assesses whether requested formatting is followed.", 5),
+        ]
+
+        report = self.evaluate(
+            payload(
+                rubrics=rubrics,
+                prompt="Synthetic single-turn prompt.",
+                response_raw="Synthetic response.",
+                golden_response="Synthetic revised response.",
+            )
+        )
+
+        self.assertIn("Potential unsupported inference", " ".join(report["messages"]))
+        self.assertEqual(report["signals"]["unsupported_inference_count"], 1)
+
+    def test_warns_when_many_generic_rubrics_ignore_response_difference(self) -> None:
+        rubrics = [
+            rubric("Clear Reply", "Assesses whether the response is clear and easy to read.", 7),
+            rubric("Helpful Tone", "Assesses whether the response has a helpful tone.", 6),
+            rubric("Natural Language", "Assesses whether the response sounds natural.", 6),
+            rubric("Relevant Content", "Assesses whether the response remains relevant.", 5),
+            rubric("Generic Penalty", "Penalizes unsupported or generic content.", -3),
+        ]
+
+        report = self.evaluate(
+            payload(
+                category="Writing",
+                rubrics=rubrics,
+                prompt="Synthetic writing task with a specific formatting constraint and required style.",
+                response_raw="The draft ignores the requested structure and omits the required constraint.",
+                golden_response="The revised answer follows the requested structure and includes the required constraint.",
+            )
+        )
+
+        self.assertIn("Many rubrics appear generic", " ".join(report["messages"]))
+        self.assertEqual(report["signals"]["response_comparison_signal"], "weak")
+        self.assertGreaterEqual(report["signals"]["generic_rubric_count"], 3)
+
+    def test_universal_rubrics_are_not_automatically_generic_warning(self) -> None:
+        rubrics = [
+            rubric("Clear Reply", "Assesses whether the response is clear and easy to read.", 7),
+            rubric("Helpful Tone", "Assesses whether the response has a helpful tone.", 6),
+            rubric("Natural Language", "Assesses whether the response sounds natural.", 6),
+            rubric("Relevant Content", "Assesses whether the response remains relevant.", 5),
+            rubric("Unsupported Content Penalty", "Penalizes unsupported or generic content.", -3),
+        ]
+
+        report = self.evaluate(
+            payload(
+                rubrics=rubrics,
+                prompt="simple request",
+                response_raw="simple answer with matching content",
+                golden_response="simple answer with matching content",
+            )
+        )
+
+        self.assertNotIn("Many rubrics appear generic", " ".join(report["messages"]))
+        self.assertEqual(report["signals"]["response_comparison_signal"], "not_applicable")
+
+    def test_missing_useful_penalty_requires_predictable_failure_signal(self) -> None:
+        rubrics = [
+            rubric("Clear Reply", "Assesses whether the response is clear and easy to read.", 7),
+            rubric("Helpful Tone", "Assesses whether the response has a helpful tone.", 6),
+            rubric("Natural Language", "Assesses whether the response sounds natural.", 6),
+            rubric("Relevant Content", "Assesses whether the response remains relevant.", 5),
+            rubric("Correct Style", "Assesses whether the response uses a correct style.", 5),
+        ]
+
+        report = self.evaluate(
+            payload(
+                rubrics=rubrics,
+                prompt="simple request",
+                response_raw="simple answer with matching content",
+                golden_response="simple answer with matching content",
+            )
+        )
+
+        self.assertFalse(report["signals"]["missing_useful_penalty"])
+
     def test_warns_for_dimension_concentration(self) -> None:
         rubrics = [
             rubric("Tone", "Assesses whether the response uses an appropriate tone.", 6),
@@ -189,10 +288,16 @@ class RubricQualityHeuristicServiceTest(unittest.TestCase):
             rubric("Penalty", "Penalizes unsupported or generic response details.", -3),
         ]
 
-        report = self.evaluate(payload(rubrics=rubrics))
+        report = self.evaluate(
+            payload(
+                rubrics=rubrics,
+                prompt="Synthetic prompt with explicit tone and style requirements.",
+            )
+        )
 
         self.assertIn("Rubrics are concentrated in one dimension", " ".join(report["messages"]))
         self.assertEqual(report["signals"]["dominant_dimension"], "Natural Language Fluency")
+        self.assertEqual(report["signals"]["category_coverage_signal"], "low")
 
     def test_chitchat_payload_uses_general_quality_signals(self) -> None:
         rubrics = [
