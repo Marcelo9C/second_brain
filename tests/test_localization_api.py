@@ -874,10 +874,14 @@ class LocalizationApiTest(unittest.TestCase):
 
     def test_generate_persists_run_when_repository_is_available(self):
         repository = FakeRunRepository()
+        localization_service = FakeLocalizationService()
 
         with patch(
             "app.api.routes.localization.get_rubric_generation_run_repository",
             return_value=repository,
+        ), patch(
+            "app.api.routes.localization.get_localization_service",
+            return_value=localization_service,
         ):
             response = self.client.post(
                 "/api/localization/rubrics/generate",
@@ -893,9 +897,18 @@ class LocalizationApiTest(unittest.TestCase):
         self.assertEqual(repository.created_runs[0]["status"], "pending")
         self.assertEqual(repository.updated_runs[-1]["status"], "success")
         self.assertEqual(repository.updated_runs[-1]["parsed_rubrics"], data["rubrics"])
+        case_update = localization_service.updated_cases[-1]["payload"]
+        self.assertEqual(case_update["status"], "draft")
+        self.assertEqual(case_update["rubrics"], data["rubrics"])
+        self.assertEqual(
+            case_update["metadata"]["rubric_generation"]["run_id"],
+            "00000000-0000-0000-0000-000000000001",
+        )
+        self.assertEqual(case_update["metadata"]["raw_model_response"], data["raw_model_response"])
 
     def test_generate_provider_error_returns_run_reference(self):
         repository = FakeRunRepository()
+        localization_service = FakeLocalizationService()
         failing_service = RubricGenerationService(
             providers={"fake": FakeProviderAPI(fail=True)},
             default_provider="fake",
@@ -904,6 +917,9 @@ class LocalizationApiTest(unittest.TestCase):
         with patch(
             "app.api.routes.localization.get_rubric_generation_run_repository",
             return_value=repository,
+        ), patch(
+            "app.api.routes.localization.get_localization_service",
+            return_value=localization_service,
         ), patch(
             "app.api.routes.localization.get_rubric_generation_service",
             return_value=failing_service,
@@ -920,6 +936,13 @@ class LocalizationApiTest(unittest.TestCase):
         self.assertEqual(data["run_id"], "00000000-0000-0000-0000-000000000001")
         self.assertEqual(data["case_id"], "00000000-0000-0000-0000-000000000010")
         self.assertEqual(repository.updated_runs[-1]["status"], "failed")
+        case_update = localization_service.updated_cases[-1]["payload"]
+        self.assertNotIn("rubrics", case_update)
+        self.assertEqual(case_update["metadata"]["rubric_generation"]["generation_failure_type"], "provider_failed")
+        self.assertEqual(
+            case_update["metadata"]["rubric_generation"]["run_id"],
+            "00000000-0000-0000-0000-000000000001",
+        )
 
     def test_apply_run_creates_artifact_and_updates_case_cache(self):
         repository = FakeRunRepository()

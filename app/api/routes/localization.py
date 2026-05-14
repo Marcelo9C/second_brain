@@ -118,6 +118,7 @@ def export_rubric_cases_csv(payload: RubricCaseExportRequest) -> dict[str, objec
 @router.post("/rubrics/generate")
 def generate_rubrics(payload: RubricGenerateRequest) -> dict[str, object]:
     run_context: dict[str, Any] | None = None
+    data: dict[str, Any] = {}
     try:
         data = payload.model_dump()
         localization_service = get_localization_service()
@@ -143,10 +144,10 @@ def generate_rubrics(payload: RubricGenerateRequest) -> dict[str, object]:
             result["case_id"] = str(run_context["run"]["case_id"])
         return result
     except ValueError as error:
-        _fail_generation_run(run_context, error)
+        _fail_generation_run(run_context, error, data=data)
         raise HTTPException(status_code=400, detail=str(error)) from error
     except RubricGenerationError as error:
-        _fail_generation_run(run_context, error)
+        _fail_generation_run(run_context, error, data=data)
         raise HTTPException(status_code=502, detail=_run_error_detail(run_context, error)) from error
 
 
@@ -304,7 +305,7 @@ def _finish_generation_run(
         heuristic_report = validation_report.get("qualityHeuristics")
 
     metadata = result.get("metadata") or {}
-    repository.update_run(
+    updated_run = repository.update_run(
         str(run["id"]),
         {
             "status": _run_status_from_result(result),
@@ -325,21 +326,120 @@ def _finish_generation_run(
             "error_message": result.get("error") or metadata.get("validation_error") or metadata.get("raw_error"),
         },
     )
+    _persist_generation_case_snapshot(
+        data,
+        result,
+        run_context={
+            **run_context,
+            "run": updated_run or run,
+        },
+        validation_report=validation_report,
+        contract=contract,
+    )
 
 
-def _fail_generation_run(run_context: dict[str, Any] | None, error: Exception) -> None:
+def _fail_generation_run(
+    run_context: dict[str, Any] | None,
+    error: Exception,
+    *,
+    data: dict[str, Any] | None = None,
+) -> None:
     if not run_context or not run_context.get("run"):
         return
     try:
-        run_context["repository"].update_run(
+        updated_run = run_context["repository"].update_run(
             str(run_context["run"]["id"]),
             {
                 "status": "failed",
                 "error_message": str(error),
             },
         )
+        _persist_generation_case_snapshot(
+            data or {},
+            {
+                "success": False,
+                "rubrics": None,
+                "metadata": {
+                    "generation_failure_type": "provider_failed",
+                    "validation_status": "failed",
+                    "raw_error": str(error),
+                },
+                "raw_model_response": None,
+                "error": str(error),
+            },
+            run_context={
+                **run_context,
+                "run": updated_run or run_context["run"],
+            },
+            validation_report=None,
+            contract=None,
+        )
     except Exception as persistence_error:
         logger.debug("Could not mark rubric generation run as failed: %s", persistence_error)
+
+
+def _persist_generation_case_snapshot(
+    data: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    run_context: dict[str, Any] | None,
+    validation_report: dict[str, Any] | None,
+    contract: Any,
+) -> None:
+    if not run_context or not run_context.get("run"):
+        return
+
+    run = run_context["run"]
+    case_id = str(run.get("case_id") or data.get("case_id") or "")
+    if not case_id:
+        return
+
+    try:
+        localization_service = get_localization_service()
+        existing = localization_service.get_case(case_id) or {}
+        existing_metadata = existing.get("metadata") if isinstance(existing.get("metadata"), dict) else {}
+        request_metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+        generation_metadata = {
+            **(result.get("metadata") or {}),
+            "run_id": str(run.get("id")),
+            "run_number": run.get("run_number"),
+            "case_id": case_id,
+            "category": data.get("category") or existing.get("category"),
+            "locale": data.get("locale") or existing.get("locale"),
+            "template_contract": data.get("contract"),
+        }
+        metadata = {
+            **existing_metadata,
+            **request_metadata,
+            "source": "localization_rubric_lab",
+            "created_for_generation_run": existing_metadata.get(
+                "created_for_generation_run",
+                request_metadata.get("created_for_generation_run", False),
+            ),
+            "rubric_generation": generation_metadata,
+            "raw_model_response": result.get("raw_model_response"),
+        }
+        if validation_report is not None:
+            metadata["validation_report"] = validation_report
+
+        updates: dict[str, Any] = {
+            "locale": data.get("locale") or existing.get("locale") or "pt-BR",
+            "category": data.get("category") or existing.get("category"),
+            "chat_history": data.get("chat_history") if data.get("chat_history") is not None else existing.get("chat_history", []),
+            "prompt": data.get("prompt") if data.get("prompt") is not None else existing.get("prompt"),
+            "response_raw": data.get("response_raw") if data.get("response_raw") is not None else existing.get("response_raw"),
+            "golden_response": data.get("golden_response")
+            if data.get("golden_response") is not None
+            else existing.get("golden_response"),
+            "metadata": metadata,
+        }
+        if result.get("success") is True and result.get("rubrics"):
+            updates["rubrics"] = result.get("rubrics")
+            updates["status"] = "draft"
+
+        localization_service.update_case(case_id, updates)
+    except Exception as error:
+        logger.debug("Could not persist rubric generation snapshot for case %s: %s", case_id, error)
 
 
 def _run_error_detail(run_context: dict[str, Any] | None, error: Exception) -> dict[str, Any]:
