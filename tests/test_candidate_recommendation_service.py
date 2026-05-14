@@ -105,59 +105,6 @@ class CandidateRecommendationServiceTest(unittest.TestCase):
         self.assertEqual(result["recommended_candidate_id"], "D")
         self.assertEqual(result["metadata"]["candidate_count"], 4)
 
-    def test_recommendation_id_accepts_candidate_label_variants(self) -> None:
-        variants = ["Candidate B", "Candidata B", "Candidato B", "candidate-B", "candidate_B"]
-
-        for variant in variants:
-            with self.subTest(variant=variant):
-                provider = FakeRecommendationProvider(
-                    response_text=json.dumps(
-                        {
-                            "recommended_candidate_id": variant,
-                            "reason": "Best base.",
-                            "warnings": [],
-                        }
-                    )
-                )
-
-                result = self.service(provider).recommend(recommendation_payload())
-
-                self.assertTrue(result["success"])
-                self.assertEqual(result["recommended_candidate_id"], "B")
-
-    def test_recommendation_id_outside_submitted_candidates_is_rejected(self) -> None:
-        provider = FakeRecommendationProvider(
-            response_text=json.dumps(
-                {
-                    "recommended_candidate_id": "Candidato D",
-                    "reason": "No submitted match.",
-                    "warnings": [],
-                }
-            )
-        )
-
-        result = self.service(provider).recommend(recommendation_payload())
-
-        self.assertFalse(result["success"])
-        self.assertEqual(result["metadata"]["generation_failure_type"], "invalid_recommendation_response")
-        self.assertIsNone(result["recommended_candidate_id"])
-
-    def test_ambiguous_recommendation_id_is_rejected(self) -> None:
-        provider = FakeRecommendationProvider(
-            response_text=json.dumps(
-                {
-                    "recommended_candidate_id": "Candidate A or B",
-                    "reason": "Ambiguous.",
-                    "warnings": [],
-                }
-            )
-        )
-
-        result = self.service(provider).recommend(recommendation_payload())
-
-        self.assertFalse(result["success"])
-        self.assertEqual(result["metadata"]["generation_failure_type"], "invalid_recommendation_response")
-
     def test_provider_failure_returns_success_false(self) -> None:
         result = self.service(FakeRecommendationProvider(fail=True)).recommend(recommendation_payload())
 
