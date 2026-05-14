@@ -34,6 +34,7 @@ class Settings:
     default_embedding_dimensions: int = 384
     export_dir: Path = ROOT_DIR / "data" / "exports"
     models_dir: Path = ROOT_DIR / "models"
+    localization_debug_recommendation_trace: bool = False
 
 
 @lru_cache
@@ -77,4 +78,15 @@ def get_settings() -> Settings:
             )
         ),
         export_dir=Path(os.environ.get("EXPORT_DIR", str(Settings.export_dir))),
+        localization_debug_recommendation_trace=_env_bool(
+            "LOCALIZATION_DEBUG_RECOMMENDATION_TRACE",
+            Settings.localization_debug_recommendation_trace,
+        ),
     )
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}

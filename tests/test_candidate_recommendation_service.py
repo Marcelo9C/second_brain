@@ -68,8 +68,17 @@ class FakeRecommendationProvider(BaseProvider):
 
 
 class CandidateRecommendationServiceTest(unittest.TestCase):
-    def service(self, provider: FakeRecommendationProvider) -> CandidateRecommendationService:
-        return CandidateRecommendationService(providers={"fake": provider}, default_provider="fake")
+    def service(
+        self,
+        provider: FakeRecommendationProvider,
+        *,
+        debug_trace: bool = False,
+    ) -> CandidateRecommendationService:
+        return CandidateRecommendationService(
+            providers={"fake": provider},
+            default_provider="fake",
+            debug_trace=debug_trace,
+        )
 
     def test_request_with_one_valid_candidate_returns_recommendation(self) -> None:
         provider = FakeRecommendationProvider(
@@ -123,6 +132,82 @@ class CandidateRecommendationServiceTest(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertEqual(result["metadata"]["generation_failure_type"], "invalid_recommendation_response")
         self.assertIsNone(result["recommended_candidate_id"])
+
+    def test_debug_false_does_not_expose_raw_provider_response(self) -> None:
+        raw_response = json.dumps({"recommended_candidate_id": "D", "reason": "No match.", "warnings": []})
+        provider = FakeRecommendationProvider(response_text=raw_response)
+
+        result = self.service(provider, debug_trace=False).recommend(recommendation_payload())
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["metadata"]["generation_failure_type"], "invalid_recommendation_response")
+        self.assertNotIn("recommendation_trace", result["metadata"])
+        self.assertNotIn("raw_provider_response", result["metadata"])
+        self.assertNotIn("raw_model_response", result["metadata"])
+        self.assertEqual(
+            result["warnings"],
+            ["A IA não retornou uma candidata válida. Tente novamente ou selecione uma candidata manualmente."],
+        )
+
+    def test_debug_true_exposes_recommendation_trace(self) -> None:
+        raw_response = json.dumps({"recommended_candidate_id": "D", "reason": "No match.", "warnings": []})
+        provider = FakeRecommendationProvider(response_text=raw_response)
+
+        result = self.service(provider, debug_trace=True).recommend(recommendation_payload())
+
+        trace = result["metadata"]["recommendation_trace"]
+        self.assertTrue(trace["enabled"])
+        self.assertEqual(trace["request_summary"]["candidate_ids"], ["A", "B"])
+        self.assertEqual(trace["raw_provider_response"], raw_response)
+        self.assertEqual(trace["parsed_response"]["recommended_candidate_id"], "D")
+        self.assertEqual(
+            trace["validation_error"],
+            "recommended_candidate_id does not match any submitted candidate.",
+        )
+        self.assertEqual(trace["generation_failure_type"], "invalid_recommendation_response")
+        self.assertFalse(trace["endpoint_response"]["success"])
+        self.assertIn("prompt_text", trace["prompt_summary"])
+
+    def test_non_json_response_is_invalid_with_trace(self) -> None:
+        provider = FakeRecommendationProvider(response_text="not json")
+
+        result = self.service(provider, debug_trace=True).recommend(recommendation_payload())
+
+        trace = result["metadata"]["recommendation_trace"]
+        self.assertFalse(result["success"])
+        self.assertEqual(result["metadata"]["generation_failure_type"], "invalid_recommendation_response")
+        self.assertEqual(trace["raw_provider_response"], "not json")
+        self.assertEqual(trace["parsed_response"], {})
+        self.assertEqual(trace["validation_error"], "recommended_candidate_id is required.")
+
+    def test_missing_recommended_candidate_id_is_invalid(self) -> None:
+        provider = FakeRecommendationProvider(
+            response_text=json.dumps({"reason": "No id.", "warnings": []})
+        )
+
+        result = self.service(provider, debug_trace=True).recommend(recommendation_payload())
+
+        trace = result["metadata"]["recommendation_trace"]
+        self.assertFalse(result["success"])
+        self.assertEqual(result["metadata"]["generation_failure_type"], "invalid_recommendation_response")
+        self.assertEqual(trace["parsed_response"], {"reason": "No id.", "warnings": []})
+        self.assertEqual(trace["validation_error"], "recommended_candidate_id is required.")
+
+    def test_out_of_payload_candidate_id_is_invalid(self) -> None:
+        provider = FakeRecommendationProvider(
+            response_text=json.dumps({"recommended_candidate_id": "C", "reason": "No match.", "warnings": []})
+        )
+
+        result = self.service(provider, debug_trace=True).recommend(recommendation_payload())
+
+        trace = result["metadata"]["recommendation_trace"]
+        self.assertFalse(result["success"])
+        self.assertEqual(result["metadata"]["generation_failure_type"], "invalid_recommendation_response")
+        self.assertEqual(trace["parsed_response"]["recommended_candidate_id"], "C")
+        self.assertEqual(
+            trace["validation_error"],
+            "recommended_candidate_id does not match any submitted candidate.",
+        )
 
     def test_provider_model_mismatch_is_discarded(self) -> None:
         provider = FakeRecommendationProvider(force_model_used="fallback-model")

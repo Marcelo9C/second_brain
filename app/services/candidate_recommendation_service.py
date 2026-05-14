@@ -15,9 +15,11 @@ class CandidateRecommendationService:
         *,
         providers: dict[str, BaseProvider],
         default_provider: str = "ollama",
+        debug_trace: bool = False,
     ) -> None:
         self.providers = providers
         self.default_provider = default_provider
+        self.debug_trace = debug_trace
 
     def recommend(self, payload: dict[str, Any]) -> dict[str, Any]:
         payload = normalize_candidate_response_payload(payload, require_selection=False)
@@ -50,23 +52,42 @@ class CandidateRecommendationService:
             "fallback_applied": False,
             "result_discarded": False,
         }
+        trace = self._new_trace(
+            payload=payload,
+            candidates=candidates,
+            provider_requested=provider_requested,
+            model_requested=model_requested,
+        )
         if not model_allowed_by_backend:
-            return self._failure(
+            result = self._failure(
                 metadata,
                 "model_not_allowed_by_backend",
-                f"Model not allowed: {model_requested}. Recommendation blocked.",
+                "A IA não retornou uma candidata válida. Tente novamente ou selecione uma candidata manualmente.",
             )
+            self._set_trace_failure(
+                trace,
+                generation_failure_type="model_not_allowed_by_backend",
+                validation_error=f"Model not allowed: {model_requested}. Recommendation blocked.",
+            )
+            return self._with_trace(result, trace)
 
         prompt = self._build_prompt(payload, candidates)
         prompt_text = prompt.as_text()
+        self._set_trace_prompt(trace, prompt_text, candidates)
         try:
             provider_result = provider.generate(prompt=prompt, model=model_requested)
         except ProviderError as error:
-            return self._failure(
+            result = self._failure(
                 {**metadata, "raw_error": str(error)},
                 "provider_failed",
                 str(error),
             )
+            self._set_trace_failure(
+                trace,
+                generation_failure_type="provider_failed",
+                validation_error=str(error),
+            )
+            return self._with_trace(result, trace)
 
         metadata.update(
             {
@@ -81,6 +102,7 @@ class CandidateRecommendationService:
                 "response_char_count": len(provider_result.text),
             }
         )
+        self._set_trace_provider_response(trace, provider_result.text)
 
         mismatch = self._audit_mismatch(
             provider_requested=provider_requested,
@@ -96,23 +118,42 @@ class CandidateRecommendationService:
                     "blocked_reason": mismatch["reason"],
                 }
             )
-            return self._failure(metadata, "provider_mismatch_discarded", mismatch["message"])
+            result = self._failure(metadata, "provider_mismatch_discarded", mismatch["message"])
+            self._set_trace_failure(
+                trace,
+                generation_failure_type="provider_mismatch_discarded",
+                validation_error=mismatch["message"],
+            )
+            return self._with_trace(result, trace)
 
         parsed = self._extract_recommendation(provider_result.text)
+        self._set_trace_parsed_response(trace, parsed)
         recommended_id = self._clean_optional_text(parsed.get("recommended_candidate_id"))
+        validation_error = None
+        if not recommended_id:
+            validation_error = "recommended_candidate_id is required."
+        elif not any(item["id"] == recommended_id for item in candidates):
+            validation_error = "recommended_candidate_id does not match any submitted candidate."
         candidate = next((item for item in candidates if item["id"] == recommended_id), None)
         if candidate is None:
-            return self._failure(
-                {**metadata, "raw_model_response": provider_result.text},
+            result = self._failure(
+                metadata,
                 "invalid_recommendation_response",
-                "recommended_candidate_id does not match any submitted candidate.",
+                "A IA não retornou uma candidata válida. Tente novamente ou selecione uma candidata manualmente.",
             )
+            self._set_trace_failure(
+                trace,
+                generation_failure_type="invalid_recommendation_response",
+                validation_error=validation_error
+                or "recommended_candidate_id does not match any submitted candidate.",
+            )
+            return self._with_trace(result, trace)
 
         warnings = parsed.get("warnings")
         if not isinstance(warnings, list):
             warnings = []
 
-        return {
+        result = {
             "success": True,
             "recommended_candidate_id": candidate["id"],
             "recommended_candidate_label": candidate.get("label") or f"Candidate {candidate['id']}",
@@ -121,6 +162,8 @@ class CandidateRecommendationService:
             "warnings": [str(warning) for warning in warnings if str(warning).strip()],
             "metadata": metadata,
         }
+        self._set_trace_success(trace)
+        return self._with_trace(result, trace)
 
     def _provider(self, provider_name: str) -> BaseProvider:
         provider = self.providers.get(provider_name)
@@ -203,6 +246,103 @@ class CandidateRecommendationService:
                 "generation_failure_type": failure_type,
             },
         }
+
+    def _new_trace(
+        self,
+        *,
+        payload: dict[str, Any],
+        candidates: list[dict[str, Any]],
+        provider_requested: str,
+        model_requested: str,
+    ) -> dict[str, Any] | None:
+        if not self.debug_trace:
+            return None
+        candidate_ids = [candidate["id"] for candidate in candidates]
+        return {
+            "enabled": True,
+            "request_payload": payload,
+            "request_summary": {
+                "locale": payload.get("locale"),
+                "category": payload.get("category"),
+                "candidate_ids": candidate_ids,
+                "candidate_count": len(candidates),
+                "provider_requested": provider_requested,
+                "model_requested": model_requested,
+            },
+            "prompt_summary": {
+                "requires_json": True,
+                "required_keys": [
+                    "recommended_candidate_id",
+                    "reason",
+                    "warnings",
+                ],
+                "allowed_candidate_ids": candidate_ids,
+            },
+            "raw_provider_response": None,
+            "parsed_response": None,
+            "validation_error": None,
+            "endpoint_response": None,
+            "generation_failure_type": "none",
+        }
+
+    def _set_trace_prompt(
+        self,
+        trace: dict[str, Any] | None,
+        prompt_text: str,
+        candidates: list[dict[str, Any]],
+    ) -> None:
+        if trace is None:
+            return
+        trace["prompt_summary"] = {
+            **trace["prompt_summary"],
+            "allowed_candidate_ids": [candidate["id"] for candidate in candidates],
+            "prompt_char_count": len(prompt_text),
+            "prompt_text": prompt_text,
+        }
+
+    def _set_trace_provider_response(self, trace: dict[str, Any] | None, raw_response: str) -> None:
+        if trace is not None:
+            trace["raw_provider_response"] = raw_response
+
+    def _set_trace_parsed_response(self, trace: dict[str, Any] | None, parsed: dict[str, Any]) -> None:
+        if trace is not None:
+            trace["parsed_response"] = parsed
+
+    def _set_trace_failure(
+        self,
+        trace: dict[str, Any] | None,
+        *,
+        generation_failure_type: str,
+        validation_error: str,
+    ) -> None:
+        if trace is None:
+            return
+        trace["generation_failure_type"] = generation_failure_type
+        trace["validation_error"] = validation_error
+
+    def _set_trace_success(self, trace: dict[str, Any] | None) -> None:
+        if trace is not None:
+            trace["generation_failure_type"] = "none"
+
+    def _with_trace(self, result: dict[str, Any], trace: dict[str, Any] | None) -> dict[str, Any]:
+        if trace is None:
+            return result
+        endpoint_response = {
+            key: value
+            for key, value in result.items()
+            if key != "metadata"
+        }
+        endpoint_response["metadata"] = {
+            key: value
+            for key, value in (result.get("metadata") or {}).items()
+            if key != "recommendation_trace"
+        }
+        trace["endpoint_response"] = endpoint_response
+        result["metadata"] = {
+            **(result.get("metadata") or {}),
+            "recommendation_trace": trace,
+        }
+        return result
 
     def _audit_mismatch(
         self,

@@ -130,4 +130,5 @@ def get_candidate_recommendation_service() -> CandidateRecommendationService:
             ),
         },
         default_provider="ollama",
+        debug_trace=settings.localization_debug_recommendation_trace,
     )

@@ -557,6 +557,90 @@ class LocalizationApiTest(unittest.TestCase):
         self.assertFalse(data["success"])
         self.assertEqual(data["metadata"]["generation_failure_type"], "provider_failed")
 
+    def test_recommend_golden_debug_false_hides_trace_payload(self):
+        self.fake_provider.response_text = json.dumps(
+            {
+                "recommended_candidate_id": "C",
+                "reason": "No match.",
+                "warnings": [],
+            }
+        )
+        service = CandidateRecommendationService(
+            providers={"fake": self.fake_provider},
+            default_provider="fake",
+            debug_trace=False,
+        )
+
+        with patch("app.api.routes.localization.get_candidate_recommendation_service", return_value=service):
+            response = self.client.post(
+                "/api/localization/candidate-responses/recommend-golden",
+                json={
+                    "locale": "pt-BR",
+                    "category": "Writing",
+                    "prompt": "Synthetic prompt.",
+                    "candidate_responses": [
+                        {"id": "A", "label": "Candidate A", "response_raw": "A response."},
+                        {"id": "B", "label": "Candidate B", "response_raw": "B response."},
+                    ],
+                    "provider": "fake",
+                    "model": "fake-model",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["success"])
+        self.assertEqual(data["metadata"]["generation_failure_type"], "invalid_recommendation_response")
+        self.assertNotIn("recommendation_trace", data["metadata"])
+        self.assertNotIn("raw_provider_response", data["metadata"])
+        self.assertEqual(
+            data["warnings"],
+            ["A IA não retornou uma candidata válida. Tente novamente ou selecione uma candidata manualmente."],
+        )
+
+    def test_recommend_golden_debug_true_exposes_trace(self):
+        raw_response = json.dumps(
+            {
+                "recommended_candidate_id": "C",
+                "reason": "No match.",
+                "warnings": [],
+            }
+        )
+        self.fake_provider.response_text = raw_response
+        service = CandidateRecommendationService(
+            providers={"fake": self.fake_provider},
+            default_provider="fake",
+            debug_trace=True,
+        )
+
+        with patch("app.api.routes.localization.get_candidate_recommendation_service", return_value=service):
+            response = self.client.post(
+                "/api/localization/candidate-responses/recommend-golden",
+                json={
+                    "locale": "pt-BR",
+                    "category": "Writing",
+                    "prompt": "Synthetic prompt.",
+                    "candidate_responses": [
+                        {"id": "A", "label": "Candidate A", "response_raw": "A response."},
+                        {"id": "B", "label": "Candidate B", "response_raw": "B response."},
+                    ],
+                    "provider": "fake",
+                    "model": "fake-model",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        trace = data["metadata"]["recommendation_trace"]
+        self.assertFalse(data["success"])
+        self.assertEqual(trace["raw_provider_response"], raw_response)
+        self.assertEqual(trace["parsed_response"]["recommended_candidate_id"], "C")
+        self.assertEqual(
+            trace["validation_error"],
+            "recommended_candidate_id does not match any submitted candidate.",
+        )
+        self.assertEqual(trace["endpoint_response"]["metadata"]["generation_failure_type"], "invalid_recommendation_response")
+
     def test_api_routes_requested_ollama_provider_and_model(self):
         ollama_provider = FakeProviderAPI(
             name="ollama",
