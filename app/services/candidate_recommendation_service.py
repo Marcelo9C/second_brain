@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -99,7 +100,10 @@ class CandidateRecommendationService:
             return self._failure(metadata, "provider_mismatch_discarded", mismatch["message"])
 
         parsed = self._extract_recommendation(provider_result.text)
-        recommended_id = self._clean_optional_text(parsed.get("recommended_candidate_id"))
+        recommended_id = self._resolve_recommended_candidate_id(
+            parsed.get("recommended_candidate_id"),
+            candidates,
+        )
         candidate = next((item for item in candidates if item["id"] == recommended_id), None)
         if candidate is None:
             return self._failure(
@@ -185,6 +189,32 @@ class CandidateRecommendationService:
         except json.JSONDecodeError:
             return {}
         return parsed if isinstance(parsed, dict) else {}
+
+    def _resolve_recommended_candidate_id(
+        self,
+        raw_candidate_id: Any,
+        candidates: list[dict[str, Any]],
+    ) -> str | None:
+        value = self._clean_optional_text(raw_candidate_id)
+        if not value:
+            return None
+
+        candidate_ids = {str(candidate.get("id")) for candidate in candidates}
+        if value in candidate_ids:
+            return value
+
+        normalized = value.upper().strip()
+        normalized = re.sub(r"^(CANDIDATE|CANDIDATA|CANDIDATO)\s*[:#._-]?\s*", "", normalized)
+        normalized = normalized.strip()
+        if normalized in candidate_ids:
+            return normalized
+
+        matches = {
+            match
+            for match in re.findall(r"\b[A-D]\b", value.upper())
+            if match in candidate_ids
+        }
+        return next(iter(matches)) if len(matches) == 1 else None
 
     def _failure(
         self,
