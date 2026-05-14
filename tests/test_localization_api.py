@@ -73,6 +73,75 @@ class FakeProviderAPI(BaseProvider):
         )
 
 
+class FakeRunRepository:
+    def __init__(self):
+        self.created_runs = []
+        self.updated_runs = []
+        self.created_artifacts = []
+        self.run = None
+
+    def next_run_number(self, case_id: str) -> int:
+        return 1
+
+    def create_run(self, payload: dict) -> dict:
+        run = {
+            **payload,
+            "id": "00000000-0000-0000-0000-000000000001",
+        }
+        self.run = run
+        self.created_runs.append(run)
+        return run
+
+    def update_run(self, run_id: str, payload: dict) -> dict:
+        self.updated_runs.append({"id": run_id, **payload})
+        self.run = {
+            **(self.run or {}),
+            **payload,
+            "id": run_id,
+        }
+        return self.run
+
+    def get_run(self, run_id: str) -> dict | None:
+        if self.run and str(self.run.get("id")) == run_id:
+            return self.run
+        return None
+
+    def list_runs_for_case(self, case_id: str) -> list[dict]:
+        if self.run and str(self.run.get("case_id")) == case_id:
+            return [self.run]
+        return []
+
+    def create_applied_artifact(self, payload: dict) -> dict:
+        artifact = {
+            **payload,
+            "id": "00000000-0000-0000-0000-000000000002",
+        }
+        self.created_artifacts.append(artifact)
+        return artifact
+
+
+class FailingRunRepository(FakeRunRepository):
+    def list_runs_for_case(self, case_id: str) -> list[dict]:
+        raise RuntimeError("runs table is not available")
+
+
+class FakeLocalizationService:
+    category_templates = {"Writing": "writing_template.json"}
+
+    def __init__(self):
+        self.updated_cases = []
+
+    def active_contract_for_payload(self, payload, *, verify_payload_contract=False):
+        return None
+
+    def get_case(self, case_id: str):
+        return {"id": case_id, "metadata": {"existing": True}}
+
+    def update_case(self, case_id: str, payload: dict):
+        self.updated_cases.append({"case_id": case_id, "payload": payload})
+        return {"id": case_id, **payload}
+
+
 from unittest.mock import patch
 
 class LocalizationApiTest(unittest.TestCase):
@@ -802,6 +871,151 @@ class LocalizationApiTest(unittest.TestCase):
         self.assertEqual(data["formatValidation"]["status"], "pass")
         self.assertEqual(data["qualityHeuristics"]["status"], "pass")
         self.assertEqual(data["qualityValidation"]["status"], "pending")
+
+    def test_generate_persists_run_when_repository_is_available(self):
+        repository = FakeRunRepository()
+
+        with patch(
+            "app.api.routes.localization.get_rubric_generation_run_repository",
+            return_value=repository,
+        ):
+            response = self.client.post(
+                "/api/localization/rubrics/generate",
+                json=self._ready_payload(case_id="00000000-0000-0000-0000-000000000010"),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["run_id"], "00000000-0000-0000-0000-000000000001")
+        self.assertEqual(data["run_number"], 1)
+        self.assertEqual(data["case_id"], "00000000-0000-0000-0000-000000000010")
+        self.assertEqual(repository.created_runs[0]["status"], "pending")
+        self.assertEqual(repository.updated_runs[-1]["status"], "success")
+        self.assertEqual(repository.updated_runs[-1]["parsed_rubrics"], data["rubrics"])
+
+    def test_generate_provider_error_returns_run_reference(self):
+        repository = FakeRunRepository()
+        failing_service = RubricGenerationService(
+            providers={"fake": FakeProviderAPI(fail=True)},
+            default_provider="fake",
+        )
+
+        with patch(
+            "app.api.routes.localization.get_rubric_generation_run_repository",
+            return_value=repository,
+        ), patch(
+            "app.api.routes.localization.get_rubric_generation_service",
+            return_value=failing_service,
+        ):
+            response = self.client.post(
+                "/api/localization/rubrics/generate",
+                json=self._ready_payload(case_id="00000000-0000-0000-0000-000000000010"),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["success"])
+        self.assertEqual(data["error"], "Synthetic provider failure.")
+        self.assertEqual(data["run_id"], "00000000-0000-0000-0000-000000000001")
+        self.assertEqual(data["case_id"], "00000000-0000-0000-0000-000000000010")
+        self.assertEqual(repository.updated_runs[-1]["status"], "failed")
+
+    def test_apply_run_creates_artifact_and_updates_case_cache(self):
+        repository = FakeRunRepository()
+        repository.run = {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "case_id": "00000000-0000-0000-0000-000000000010",
+            "status": "success",
+            "parsed_rubrics": [{"Rubric_title": "Applied"}],
+            "validation_report": {"structureValidation": {"status": "pass"}},
+            "heuristic_report": {"status": "pass"},
+        }
+        localization_service = FakeLocalizationService()
+
+        with patch(
+            "app.api.routes.localization.get_rubric_generation_run_repository",
+            return_value=repository,
+        ), patch(
+            "app.api.routes.localization.get_localization_service",
+            return_value=localization_service,
+        ):
+            response = self.client.post(
+                "/api/localization/rubrics/runs/00000000-0000-0000-0000-000000000001/apply"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["artifact_id"], "00000000-0000-0000-0000-000000000002")
+        self.assertEqual(repository.created_artifacts[0]["run_id"], repository.run["id"])
+        update_payload = localization_service.updated_cases[0]["payload"]
+        self.assertEqual(update_payload["rubrics"], repository.run["parsed_rubrics"])
+        self.assertEqual(update_payload["metadata"]["applied_run_id"], repository.run["id"])
+
+    def test_list_runs_for_case_returns_repository_runs(self):
+        repository = FakeRunRepository()
+        repository.run = {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "case_id": "00000000-0000-0000-0000-000000000010",
+            "run_number": 2,
+            "status": "success",
+            "parsed_rubrics": [{"Rubric_title": "Stored"}],
+        }
+
+        with patch(
+            "app.api.routes.localization.get_rubric_generation_run_repository",
+            return_value=repository,
+        ), patch(
+            "app.api.routes.localization.get_localization_service",
+            return_value=FakeLocalizationService(),
+        ):
+            response = self.client.get(
+                "/api/localization/rubric-cases/00000000-0000-0000-0000-000000000010/runs"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["run_number"], 2)
+        self.assertEqual(data[0]["status"], "success")
+
+    def test_list_runs_for_case_reports_unavailable_run_storage(self):
+        with patch(
+            "app.api.routes.localization.get_rubric_generation_run_repository",
+            return_value=FailingRunRepository(),
+        ), patch(
+            "app.api.routes.localization.get_localization_service",
+            return_value=FakeLocalizationService(),
+        ):
+            response = self.client.get(
+                "/api/localization/rubric-cases/00000000-0000-0000-0000-000000000010/runs"
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("Rubric run storage is unavailable", response.json()["detail"])
+
+    def test_get_run_returns_repository_run(self):
+        repository = FakeRunRepository()
+        repository.run = {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "case_id": "00000000-0000-0000-0000-000000000010",
+            "run_number": 1,
+            "status": "failed",
+            "error_message": "provider failed",
+        }
+
+        with patch(
+            "app.api.routes.localization.get_rubric_generation_run_repository",
+            return_value=repository,
+        ):
+            response = self.client.get(
+                "/api/localization/rubrics/runs/00000000-0000-0000-0000-000000000001"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["id"], repository.run["id"])
+        self.assertEqual(data["error_message"], "provider failed")
 
 if __name__ == "__main__":
     unittest.main()

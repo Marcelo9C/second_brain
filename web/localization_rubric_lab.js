@@ -21,9 +21,11 @@ const state = {
   cases: [],
   providers: [],
   models: [],
+  rubricRuns: [],
   modelsLoading: false,
   providerModelRequestId: 0,
   selectedCaseId: null,
+  currentCaseMetadata: {},
   lastGenerationMetadata: null,
   lastRawModelResponse: null,
   editorArtifactMetadata: null,
@@ -69,6 +71,11 @@ const elements = {
   candidateSelectionStatus: document.querySelector("#candidate-selection-status"),
   candidateSelectionWarning: document.querySelector("#candidate-selection-warning"),
   candidateRecommendationSummary: document.querySelector("#candidate-recommendation-summary"),
+  candidateRecommendationAuditSummary: document.querySelector("#candidate-recommendation-audit-summary"),
+  candidateRecommendationAuditDetails: document.querySelector("#candidate-recommendation-audit-details"),
+  candidateRecommendationDiagnostics: document.querySelector("#candidate-recommendation-diagnostics"),
+  candidateRecommendationRawNote: document.querySelector("#candidate-recommendation-raw-note"),
+  candidateRecommendationRawResponse: document.querySelector("#candidate-recommendation-raw-response"),
   candidateInputs: Object.fromEntries(
     CANDIDATE_IDS.map((id) => [id, document.querySelector(`#candidate-response-${id}`)]),
   ),
@@ -95,6 +102,7 @@ const elements = {
   qualityHeuristicsSignals: document.querySelector("#quality-heuristics-signals"),
   qualityHeuristicsSignalList: document.querySelector("#quality-heuristics-signal-list"),
   generateRubrics: document.querySelector("#generate-rubrics"),
+  showRunHistory: document.querySelector("#show-run-history"),
   copyJson: document.querySelector("#copy-json"),
   aiWarning: document.querySelector("#ai-warning"),
   generationSummary: document.querySelector("#generation-summary"),
@@ -119,10 +127,17 @@ async function fetchJson(path, options = {}) {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    const rawDetail = payload.detail;
     const detail = Array.isArray(payload.detail)
       ? payload.detail.map((item) => item.msg).join(" | ")
-      : payload.detail;
-    throw new Error(payload.error || detail || "Falha sem detalhe retornado pelo backend.");
+      : typeof payload.detail === "object" && payload.detail !== null
+        ? payload.detail.message || JSON.stringify(payload.detail)
+        : payload.detail;
+    const error = new Error(payload.error || detail || "Falha sem detalhe retornado pelo backend.");
+    error.status = response.status;
+    error.payload = payload;
+    error.detail = rawDetail;
+    throw error;
   }
 
   return payload;
@@ -490,6 +505,7 @@ function renderCandidateSelectorState() {
 
 function renderCandidateRecommendationSummary() {
   const recommendation = state.candidateRecommendation;
+  renderCandidateRecommendationAudit();
   elements.candidateRecommendationSummary.classList.remove("ready", "running", "warning");
   elements.candidateRecommendationSummary.replaceChildren();
   if (recommendation.status === "running") {
@@ -542,6 +558,130 @@ function renderCandidateRecommendationSummary() {
   }
   elements.candidateRecommendationSummary.hidden = true;
   elements.candidateRecommendationSummary.textContent = "";
+}
+
+function renderCandidateRecommendationAudit() {
+  if (
+    !elements.candidateRecommendationAuditSummary ||
+    !elements.candidateRecommendationDiagnostics ||
+    !elements.candidateRecommendationRawNote ||
+    !elements.candidateRecommendationRawResponse
+  ) {
+    return;
+  }
+
+  const recommendation = state.candidateRecommendation || {};
+  const metadata = recommendation.metadata || null;
+  const trace = metadata?.recommendation_trace || null;
+  elements.candidateRecommendationDiagnostics.innerHTML = "";
+
+  if (!metadata && recommendation.status !== "running") {
+    setStateSummary(
+      elements.candidateRecommendationAuditSummary,
+      "neutral",
+      "Nenhuma analise",
+      "A IA ainda nao analisou as candidatas.",
+    );
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "Nenhuma analise de candidatas executada.";
+    elements.candidateRecommendationDiagnostics.appendChild(empty);
+    elements.candidateRecommendationRawNote.textContent = "Nenhuma resposta bruta registrada.";
+    elements.candidateRecommendationRawResponse.textContent = "Nenhuma resposta bruta registrada.";
+    return;
+  }
+
+  if (recommendation.status === "running") {
+    setStateSummary(
+      elements.candidateRecommendationAuditSummary,
+      "neutral",
+      "Analise em andamento",
+      "Aguardando resposta do modelo para escolher a melhor candidata.",
+    );
+  } else if (recommendation.status === "ready") {
+    setStateSummary(
+      elements.candidateRecommendationAuditSummary,
+      "ok",
+      `Recomendada ${recommendation.recommendedCandidateId || "n/d"}`,
+      recommendation.reason || "Candidata aplicada como draft da Golden Response.",
+    );
+  } else if (recommendation.status === "failed") {
+    setStateSummary(
+      elements.candidateRecommendationAuditSummary,
+      "offline",
+      "Analise falhou",
+      recommendation.warnings?.[0] || "A IA nao retornou uma candidata valida.",
+    );
+    if (elements.candidateRecommendationAuditDetails) {
+      elements.candidateRecommendationAuditDetails.open = true;
+    }
+  } else {
+    setStateSummary(
+      elements.candidateRecommendationAuditSummary,
+      "neutral",
+      "Analise pendente",
+      "Clique em Analisar candidatas com IA para executar a recomendacao.",
+    );
+  }
+
+  const fields = [
+    ["status", recommendation.status],
+    ["recommended_candidate_id", recommendation.recommendedCandidateId],
+    ["recommended_candidate_label", recommendation.recommendedCandidateLabel],
+    ["generation_failure_type", metadata?.generation_failure_type],
+    ["validation_error", trace?.validation_error],
+    ["provider_requested", metadata?.provider_requested],
+    ["model_requested", metadata?.model_requested],
+    ["provider_used", metadata?.provider_used],
+    ["model_used", metadata?.model_used],
+    ["candidate_count", metadata?.candidate_count],
+    ["model_allowed_by_backend", metadata?.model_allowed_by_backend],
+    ["fallback_applied", metadata?.fallback_applied],
+    ["result_discarded", metadata?.result_discarded],
+    ["blocked_reason", metadata?.blocked_reason],
+    ["exact_url_called", metadata?.exact_url_called],
+    ["response_status", metadata?.response_status],
+    ["generation_duration_ms", metadata?.generation_duration_ms],
+    ["response_char_count", metadata?.response_char_count],
+    ["approx_prompt_tokens", metadata?.approx_prompt_tokens],
+    ["approx_response_tokens", metadata?.approx_response_tokens],
+    ["generation_timestamp", metadata?.generation_timestamp],
+    ["technical_error", metadata?.technical_error],
+    ["raw_error", metadata?.raw_error],
+  ];
+
+  for (const [labelText, fieldValue] of fields) {
+    const item = document.createElement("div");
+    item.className = "diagnostic-item";
+    const label = document.createElement("span");
+    label.textContent = labelText;
+    const value = document.createElement("strong");
+    value.textContent = fieldValue ?? "n/d";
+    item.append(label, value);
+    elements.candidateRecommendationDiagnostics.appendChild(item);
+  }
+
+  const parsedResponse = trace?.parsed_response;
+  if (parsedResponse) {
+    const item = document.createElement("div");
+    item.className = "diagnostic-item";
+    const label = document.createElement("span");
+    label.textContent = "parsed_response";
+    const value = document.createElement("strong");
+    value.textContent = JSON.stringify(parsedResponse);
+    item.append(label, value);
+    elements.candidateRecommendationDiagnostics.appendChild(item);
+  }
+
+  if (trace?.raw_provider_response) {
+    elements.candidateRecommendationRawNote.textContent =
+      "Resposta bruta da recomendacao preservada para auditoria.";
+    elements.candidateRecommendationRawResponse.textContent = trace.raw_provider_response;
+  } else {
+    elements.candidateRecommendationRawNote.textContent =
+      "Resposta bruta indisponivel. Reinicie o backend com LOCALIZATION_DEBUG_RECOMMENDATION_TRACE=true para captura-la.";
+    elements.candidateRecommendationRawResponse.textContent = "Resposta bruta indisponivel.";
+  }
 }
 
 function updateAnalyzeCandidatesButtonState() {
@@ -1197,6 +1337,9 @@ function assertCanUseStatus(status) {
 
 function fillCase(record) {
   state.selectedCaseId = record?.id || null;
+  state.currentCaseMetadata = record?.metadata && typeof record.metadata === "object"
+    ? record.metadata
+    : {};
   elements.localeSelect.value = record?.locale || elements.localeSelect.value;
   elements.categorySelect.value = record?.category || elements.categorySelect.value;
   elements.statusSelect.value = record?.status || "draft";
@@ -1258,6 +1401,8 @@ function fillCase(record) {
 
 function resetCase() {
   state.selectedCaseId = null;
+  state.currentCaseMetadata = {};
+  state.rubricRuns = [];
   elements.statusSelect.value = "draft";
   elements.caseCategory.value = elements.categorySelect.value;
   elements.chatHistory.value = "";
@@ -1764,6 +1909,301 @@ async function saveCase(statusOverride = null) {
   await loadCases();
 }
 
+async function loadRubricRunsForCurrentCase() {
+  let caseId = state.selectedCaseId || state.lastGenerationMetadata?.case_id || null;
+  if (!caseId && state.lastGenerationMetadata?.run_id) {
+    const run = await fetchJson(`/api/localization/rubrics/runs/${state.lastGenerationMetadata.run_id}`);
+    caseId = run?.case_id || null;
+  }
+  if (!caseId) {
+    throw new Error("Este editor ainda nao tem uma run registrada. Gere rubrics com IA ou abra um case salvo.");
+  }
+  state.selectedCaseId = caseId;
+  const runs = await fetchJson(`/api/localization/rubric-cases/${caseId}/runs`);
+  state.rubricRuns = Array.isArray(runs) ? runs : [];
+  return state.rubricRuns;
+}
+
+function runStatusLabel(status) {
+  const labels = {
+    success: "ok",
+    pending: "pendente",
+    failed: "falha",
+    rejected_by_validation: "rejeitada",
+    discarded: "descartada",
+  };
+  return labels[status] || status || "n/d";
+}
+
+function runModelLabel(run) {
+  const provider = run.provider_used || run.provider_requested || "provider n/d";
+  const model = run.model_used || run.model_requested || "modelo n/d";
+  return `${provider} / ${model}`;
+}
+
+function runRubricCount(run) {
+  return Array.isArray(run?.parsed_rubrics) ? run.parsed_rubrics.length : null;
+}
+
+function runDetailRows(run) {
+  return [
+    ["id", run?.id],
+    ["case_id", run?.case_id],
+    ["run_number", run?.run_number],
+    ["status", run?.status],
+    ["provider_requested", run?.provider_requested],
+    ["model_requested", run?.model_requested],
+    ["provider_used", run?.provider_used],
+    ["model_used", run?.model_used],
+    ["duration_ms", run?.duration_ms],
+    ["response_status", run?.response_status],
+    ["approx_prompt_tokens", run?.approx_prompt_tokens],
+    ["approx_response_tokens", run?.approx_response_tokens],
+    ["exact_url_called", run?.exact_url_called],
+    ["error_message", run?.error_message],
+    ["created_at", formatDate(run?.created_at)],
+  ];
+}
+
+function closeRunHistoryModal() {
+  const existing = document.querySelector(".run-history-backdrop");
+  if (existing) {
+    existing.remove();
+  }
+}
+
+function renderRunHistoryErrorModal(message) {
+  closeRunHistoryModal();
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "app-modal-backdrop run-history-backdrop";
+
+  const modal = document.createElement("div");
+  modal.className = "app-modal run-history-modal";
+  modal.setAttribute("role", "alertdialog");
+  modal.setAttribute("aria-modal", "true");
+
+  const header = document.createElement("div");
+  header.className = "run-history-header";
+
+  const heading = document.createElement("h3");
+  heading.className = "app-modal-title";
+  heading.textContent = "Histórico de runs indisponível";
+
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "run-history-close";
+  closeButton.textContent = "Fechar";
+  closeButton.addEventListener("click", closeRunHistoryModal);
+  header.append(heading, closeButton);
+
+  const body = document.createElement("div");
+  body.className = "run-history-error";
+  body.textContent = message;
+
+  modal.append(header, body);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  closeButton.focus();
+}
+
+function appendRunDetailBlock(parent, title, value) {
+  const details = document.createElement("details");
+  details.className = "run-detail-block";
+  const summary = document.createElement("summary");
+  summary.textContent = title;
+  const pre = document.createElement("pre");
+  pre.className = "code-block small";
+  pre.textContent = typeof value === "string" ? value : JSON.stringify(value ?? null, null, 2);
+  details.append(summary, pre);
+  parent.appendChild(details);
+}
+
+async function showRubricRunDetails(runId) {
+  const run = await fetchJson(`/api/localization/rubrics/runs/${runId}`);
+  const existing = document.querySelector(".run-detail-panel");
+  if (existing) {
+    existing.remove();
+  }
+
+  const panel = document.createElement("section");
+  panel.className = "run-detail-panel";
+
+  const title = document.createElement("h4");
+  title.textContent = `Run #${run.run_number || "n/d"} - ${runStatusLabel(run.status)}`;
+  panel.appendChild(title);
+
+  const grid = document.createElement("div");
+  grid.className = "run-detail-grid";
+  for (const [labelText, valueText] of runDetailRows(run)) {
+    const item = document.createElement("div");
+    item.className = "diagnostic-item";
+    const label = document.createElement("span");
+    label.textContent = labelText;
+    const value = document.createElement("strong");
+    value.textContent = valueText ?? "n/d";
+    item.append(label, value);
+    grid.appendChild(item);
+  }
+  panel.appendChild(grid);
+
+  appendRunDetailBlock(panel, "Input snapshot", run.input_snapshot);
+  appendRunDetailBlock(panel, "Prompt enviado", run.prompt_text || "n/d");
+  appendRunDetailBlock(panel, "Resposta bruta", run.raw_model_response || "n/d");
+  appendRunDetailBlock(panel, "Rubrics parseadas", run.parsed_rubrics);
+  appendRunDetailBlock(panel, "Validation report", run.validation_report);
+  appendRunDetailBlock(panel, "Heuristic report", run.heuristic_report);
+
+  const body = document.querySelector(".run-history-body");
+  if (body) {
+    body.appendChild(panel);
+    panel.scrollIntoView({ block: "nearest" });
+  }
+}
+
+function renderRunHistoryModal(runs) {
+  closeRunHistoryModal();
+
+  const appliedRunId = state.currentCaseMetadata?.applied_run_id || null;
+  const backdrop = document.createElement("div");
+  backdrop.className = "app-modal-backdrop run-history-backdrop";
+
+  const modal = document.createElement("div");
+  modal.className = "app-modal run-history-modal";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "run-history-title");
+
+  const header = document.createElement("div");
+  header.className = "run-history-header";
+
+  const heading = document.createElement("h3");
+  heading.id = "run-history-title";
+  heading.className = "app-modal-title";
+  heading.textContent = "Histórico de runs";
+
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "run-history-close";
+  closeButton.textContent = "Fechar";
+  closeButton.addEventListener("click", closeRunHistoryModal);
+  header.append(heading, closeButton);
+
+  const summary = document.createElement("p");
+  summary.className = "app-modal-message";
+  summary.textContent = state.selectedCaseId
+    ? `Case ${state.selectedCaseId}`
+    : "Nenhum case selecionado.";
+
+  const body = document.createElement("div");
+  body.className = "run-history-body";
+
+  if (!runs.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "Nenhuma run registrada para este case.";
+    body.appendChild(empty);
+  } else {
+    const table = document.createElement("table");
+    table.className = "run-history-table";
+
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    for (const label of ["Run", "Data", "Modelo", "Status", "Rubrics", "Ação"]) {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headRow.appendChild(th);
+    }
+    head.appendChild(headRow);
+
+    const tableBody = document.createElement("tbody");
+    for (const run of runs) {
+      const row = document.createElement("tr");
+      if (String(run.id) === String(appliedRunId)) {
+        row.classList.add("active-run");
+      }
+
+      const cells = [
+        `#${run.run_number || "n/d"}`,
+        formatDate(run.created_at),
+        runModelLabel(run),
+        runStatusLabel(run.status),
+        runRubricCount(run) ?? "-",
+      ];
+
+      for (const value of cells) {
+        const td = document.createElement("td");
+        td.textContent = String(value);
+        row.appendChild(td);
+      }
+
+      const actionCell = document.createElement("td");
+      actionCell.className = "run-action-cell";
+
+      const detailsButton = document.createElement("button");
+      detailsButton.type = "button";
+      detailsButton.className = "run-apply-button run-detail-button";
+      detailsButton.textContent = "Detalhes";
+      detailsButton.addEventListener("click", () => {
+        showRubricRunDetails(String(run.id)).catch((error) => {
+          renderRunHistoryErrorModal(error.message);
+        });
+      });
+      actionCell.appendChild(detailsButton);
+
+      if (String(run.id) === String(appliedRunId)) {
+        const badge = document.createElement("span");
+        badge.className = "history-badge history-badge--approved";
+        badge.textContent = "atual";
+        actionCell.appendChild(badge);
+      } else if (run.status === "success" && runRubricCount(run)) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "run-apply-button";
+        button.textContent = "Aplicar";
+        button.addEventListener("click", () => {
+          applyRubricRun(String(run.id)).catch((error) => {
+            showToast(error.message, "warning");
+          });
+        });
+        actionCell.appendChild(button);
+      }
+      row.appendChild(actionCell);
+      tableBody.appendChild(row);
+    }
+
+    table.append(head, tableBody);
+    body.appendChild(table);
+  }
+
+  modal.append(header, summary, body);
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (event) => {
+    if (event.target === backdrop) {
+      closeRunHistoryModal();
+    }
+  });
+  document.body.appendChild(backdrop);
+  closeButton.focus();
+}
+
+async function showRubricRunHistory() {
+  const runs = await loadRubricRunsForCurrentCase();
+  renderRunHistoryModal(runs);
+}
+
+async function applyRubricRun(runId) {
+  const result = await fetchJson(`/api/localization/rubrics/runs/${runId}/apply`, {
+    method: "POST",
+  });
+  const record = await fetchJson(`/api/localization/rubric-cases/${result.case_id}`);
+  fillCase(record);
+  await loadCases();
+  const runs = await loadRubricRunsForCurrentCase();
+  renderRunHistoryModal(runs);
+  showToast(`Run aplicada: ${runId}`, "ok");
+}
+
 async function generateRubrics() {
   if (state.modelsLoading) {
     throw new Error("Aguarde o carregamento dos modelos do provider selecionado.");
@@ -1801,6 +2241,7 @@ async function generateRubrics() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        case_id: state.selectedCaseId,
         locale: elements.localeSelect.value,
         category: elements.categorySelect.value,
         chat_history: parseChatHistory(),
@@ -1825,11 +2266,21 @@ async function generateRubrics() {
 
     state.lastGenerationMetadata = {
       ...(result.metadata || {}),
+      run_id: result.run_id || result.metadata?.run_id || null,
+      run_number: result.run_number || result.metadata?.run_number || null,
+      case_id: result.case_id || result.metadata?.case_id || state.selectedCaseId || null,
       template_used: state.currentTemplate?.template_name || result.metadata?.template_used,
       template_contract: state.currentTemplate?.contract || result.metadata?.template_contract || null,
       category: state.currentTemplate?.category || elements.categorySelect.value,
       locale: state.currentTemplate?.locale || elements.localeSelect.value,
     };
+    if (result.case_id) {
+      state.selectedCaseId = result.case_id;
+      state.currentCaseMetadata = {
+        ...state.currentCaseMetadata,
+        created_for_generation_run: true,
+      };
+    }
     renderCandidateSelectorState();
     state.lastRawModelResponse = result.raw_model_response || null;
     state.backendValidationRequestId += 1;
@@ -2577,6 +3028,10 @@ function qualitySignalEntries(signals) {
     ["weight_distribution", "Weights"],
     ["possible_overlap_count", "Possible overlaps"],
     ["unsupported_inference_count", "Unsupported inference signals"],
+    ["coverage_audit_status", "Coverage audit"],
+    ["missing_prompt_requirements", "Missing prompt requirements"],
+    ["domain_risk_coverage_gaps", "Domain risk gaps"],
+    ["boilerplate_repetition_count", "Boilerplate repetitions"],
     ["dominant_dimension", "Dominant dimension"],
   ];
   return keys
@@ -2651,6 +3106,7 @@ function updateActionStates(report = state.lastValidationReport) {
   const formatOk = report?.formatValidation?.status === "pass";
   const approvalOk = report?.approvalReadiness?.status === "pass";
   const hasContractMismatch = editorContractState().hasContractMismatch;
+  elements.showRunHistory.disabled = false;
   elements.markReviewed.disabled = !(structureOk && formatOk) || hasContractMismatch;
   elements.markApproved.disabled = !approvalOk || hasContractMismatch;
   elements.exportJsonl.disabled = hasContractMismatch;
@@ -2824,6 +3280,12 @@ elements.saveCase.addEventListener("click", () => {
   });
 });
 
+elements.showRunHistory.addEventListener("click", () => {
+  showRubricRunHistory().catch((error) => {
+    renderRunHistoryErrorModal(error.message);
+  });
+});
+
 elements.analyzeCandidates.addEventListener("click", () => {
   recommendGoldenCandidate().catch((error) => {
     state.candidateRecommendation = {
@@ -2843,6 +3305,23 @@ elements.analyzeCandidates.addEventListener("click", () => {
 
 elements.generateRubrics.addEventListener("click", () => {
   generateRubrics().catch((error) => {
+    if (error.detail?.run_id || error.detail?.case_id) {
+      state.lastGenerationMetadata = {
+        ...(state.lastGenerationMetadata || {}),
+        run_id: error.detail.run_id || null,
+        run_number: error.detail.run_number || null,
+        case_id: error.detail.case_id || state.selectedCaseId || null,
+        generation_failure_type: "provider_failed",
+        raw_error: error.message,
+        validation_status: "failed",
+        category: state.currentTemplate?.category || elements.categorySelect.value,
+        locale: state.currentTemplate?.locale || elements.localeSelect.value,
+      };
+      if (error.detail.case_id) {
+        state.selectedCaseId = error.detail.case_id;
+      }
+      renderGenerationDiagnostics(state.lastGenerationMetadata);
+    }
     elements.aiWarning.textContent = error.message;
     renderCandidateSelectorState();
     updateGenerateButtonState();

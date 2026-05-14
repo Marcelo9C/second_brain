@@ -6,6 +6,7 @@ from app.repositories.annotations import AnnotationSxSRepository
 from app.repositories.documents import DocumentChunkRepository
 from app.repositories.experiments import ExperimentRepository
 from app.repositories.localization_repository import LocalizationRubricCaseRepository
+from app.repositories.rubric_generation_run_repository import RubricGenerationRunRepository
 from app.repositories.retrieval_traces import RetrievalTraceRepository
 from app.services.export_service import AnnotationExportService
 from app.services.candidate_recommendation_service import CandidateRecommendationService
@@ -47,6 +48,11 @@ def get_annotation_repository() -> AnnotationSxSRepository:
 @lru_cache
 def get_localization_repository() -> LocalizationRubricCaseRepository:
     return LocalizationRubricCaseRepository(get_db(), get_settings().postgres_schema)
+
+
+@lru_cache
+def get_rubric_generation_run_repository() -> RubricGenerationRunRepository:
+    return RubricGenerationRunRepository(get_db(), get_settings().postgres_schema)
 
 
 @lru_cache

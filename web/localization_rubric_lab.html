@@ -241,6 +241,7 @@
                 <button id="generate-rubrics" class="primary-action-button" type="button">Gerar Rubrics com IA</button>
               </div>
               <div class="toolbar-group secondary-actions">
+                <button id="show-run-history" class="ghost" type="button">Histórico de runs</button>
                 <button id="copy-json" class="ghost" type="button">Copiar JSON</button>
                 <button id="save-case" class="ghost" type="button">Salvar draft</button>
               </div>
@@ -326,6 +327,28 @@
               <div id="generation-diagnostics" class="diagnostics-grid">
                 <div class="empty-state">Nenhuma geração realizada.</div>
               </div>
+            </details>
+          </section>
+
+          <section class="history-panel">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">Auditoria</p>
+                <h2>Diagnostico das candidatas</h2>
+              </div>
+            </div>
+            <div id="candidate-recommendation-audit-summary" class="state-summary neutral">
+              Nenhuma analise de candidatas executada.
+            </div>
+            <details id="candidate-recommendation-audit-details" class="audit-details">
+              <summary>Detalhes tecnicos da recomendacao</summary>
+              <div id="candidate-recommendation-diagnostics" class="diagnostics-grid">
+                <div class="empty-state">Nenhuma analise de candidatas executada.</div>
+              </div>
+              <div id="candidate-recommendation-raw-note" class="embedding-summary">
+                Nenhuma resposta bruta registrada.
+              </div>
+              <pre id="candidate-recommendation-raw-response" class="code-block small raw-model-response">Nenhuma resposta bruta registrada.</pre>
             </details>
           </section>
 

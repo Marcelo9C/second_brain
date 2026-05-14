@@ -58,6 +58,14 @@ class GeminiProvider(BaseProvider):
             else "Return only a valid JSON array. Do not include markdown, prose, or explanations."
         )
         task_payload = prompt.task_payload if isinstance(prompt, ProviderPrompt) else prompt
+        generation_config: dict[str, Any] = {
+            "temperature": 0.0,
+            "maxOutputTokens": 4096,
+            "responseMimeType": "application/json",
+        }
+        if isinstance(prompt, ProviderPrompt) and prompt.response_schema:
+            generation_config["responseSchema"] = prompt.response_schema
+
         request_payload = {
             "systemInstruction": {
                 "parts": [
@@ -76,31 +84,7 @@ class GeminiProvider(BaseProvider):
                     ]
                 }
             ],
-            "generationConfig": {
-                "temperature": 0.0,
-                "maxOutputTokens": 4096,
-                "responseMimeType": "application/json",
-                "responseSchema": {
-                    "type": "ARRAY",
-                    "items": {
-                        "type": "OBJECT",
-                        "properties": {
-                            "Rubric_dimensions": {"type": "STRING"},
-                            "Rubric_title": {"type": "STRING"},
-                            "Rubrics_description": {"type": "STRING"},
-                            "Rubrics_weight": {"type": "NUMBER"},
-                            "is_response_specific": {"type": "BOOLEAN"},
-                        },
-                        "required": [
-                            "Rubric_dimensions",
-                            "Rubric_title",
-                            "Rubrics_description",
-                            "Rubrics_weight",
-                            "is_response_specific",
-                        ],
-                    },
-                },
-            },
+            "generationConfig": generation_config,
         }
         request = Request(
             exact_url_called,

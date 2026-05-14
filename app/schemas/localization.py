@@ -307,6 +307,7 @@ class RubricCaseExportRequest(BaseModel):
 
 
 class RubricGenerateRequest(BaseModel):
+    case_id: str | None = None
     locale: str = "pt-BR"
     category: LocalizationCategory
     chat_history: Any = Field(default_factory=list)

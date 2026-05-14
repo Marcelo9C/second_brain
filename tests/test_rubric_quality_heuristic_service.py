@@ -560,6 +560,95 @@ class RubricQualityHeuristicServiceTest(unittest.TestCase):
         self.assertEqual(report["signals"]["actual_rubric_count"], 3)
         self.assertEqual(len(rubrics), 3)
 
+    def test_coverage_audit_warns_when_explicit_email_parts_are_missing(self) -> None:
+        rubrics = [
+            rubric("Grammar", "Assesses whether grammar and spelling are correct.", 9),
+            rubric("Naturalness", "Assesses whether the wording sounds natural in Portuguese.", 7),
+            rubric("Empathy", "Assesses whether the response sounds empathetic to the customer.", 7),
+            rubric("Awkward Writing", "Penalizes awkward or unnatural writing.", -5),
+            rubric("Conciseness", "Assesses whether the response remains concise.", 6),
+        ]
+
+        report = self.evaluate(
+            payload(
+                category="Writing",
+                rubrics=rubrics,
+                prompt="Escreva um e-mail curto, mas obrigatoriamente com assunto, saudacao e assinatura. Seja empatico.",
+            )
+        )
+
+        self.assertEqual(report["signals"]["coverage_audit_status"], "warning")
+        self.assertEqual(
+            report["signals"]["missing_prompt_requirements"],
+            ["subject line", "greeting", "signature"],
+        )
+        self.assertIn("explicit prompt requirements", " ".join(report["messages"]))
+
+    def test_coverage_audit_accepts_structural_rubric_for_email_parts(self) -> None:
+        rubrics = [
+            rubric(
+                "Instruction Following: Email Structure",
+                "The response includes all requested components: a subject line, a greeting, and a signature.",
+                8,
+                response_specific=True,
+            ),
+            rubric("Grammar", "Assesses whether grammar and spelling are correct.", 9),
+            rubric("Empathy", "Assesses whether the response sounds empathetic to the customer.", 7),
+            rubric("Awkward Writing", "Penalizes awkward or unnatural writing.", -5),
+            rubric("Conciseness", "Assesses whether the response remains concise.", 6),
+        ]
+
+        report = self.evaluate(
+            payload(
+                category="Writing",
+                rubrics=rubrics,
+                prompt="Escreva um e-mail curto, mas obrigatoriamente com assunto, saudacao e assinatura. Seja empatico.",
+            )
+        )
+
+        self.assertEqual(report["signals"]["missing_prompt_requirements"], [])
+
+    def test_coverage_audit_warns_for_customer_support_grounding_gap(self) -> None:
+        rubrics = [
+            rubric("Grammar", "Assesses whether grammar and spelling are correct.", 9),
+            rubric("Email Structure", "Assesses whether required email structure is present.", 8, response_specific=True),
+            rubric("Empathy", "Assesses whether the response sounds empathetic to the customer.", 7),
+            rubric("Naturalness", "Assesses whether the wording sounds natural in Portuguese.", 6),
+            rubric("Awkward Writing", "Penalizes awkward or unnatural writing.", -5),
+        ]
+
+        report = self.evaluate(
+            payload(
+                category="Writing",
+                rubrics=rubrics,
+                prompt="Preciso responder um cliente que reclamou do atraso na entrega.",
+            )
+        )
+
+        self.assertEqual(
+            report["signals"]["domain_risk_coverage_gaps"],
+            ["customer_support_grounding"],
+        )
+        self.assertIn("domain risk", " ".join(report["messages"]))
+
+    def test_coverage_audit_detects_repeated_boilerplate(self) -> None:
+        rubrics = [
+            rubric(
+                "Grammar",
+                "The response is free from errors in Portuguese. pt-BR nuances are pt-BR specific. pt-BR nuances are pt-BR specific.",
+                9,
+            ),
+            rubric("Structure", "Assesses whether the response follows the requested structure.", 8),
+            rubric("Tone", "Assesses whether the response uses an appropriate tone.", 7),
+            rubric("Naturalness", "Assesses whether the wording sounds natural.", 6),
+            rubric("Awkward Writing", "Penalizes awkward or unnatural writing.", -5),
+        ]
+
+        report = self.evaluate(payload(category="Writing", rubrics=rubrics))
+
+        self.assertEqual(report["signals"]["boilerplate_repetition_count"], 1)
+        self.assertIn("Repeated boilerplate", " ".join(report["messages"]))
+
 
 if __name__ == "__main__":
     unittest.main()

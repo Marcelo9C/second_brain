@@ -353,6 +353,9 @@ class RubricGenerationService:
             )
         )
         if contract:
+            count_text = (
+                f"Generate exactly {contract.expected_rubric_count} rubric objects, matching the active template contract.\n"
+            )
             weight_policy = contract.weight_policy
             integer_text = "integer " if weight_policy.integer_only else ""
             zero_text = (
@@ -368,6 +371,9 @@ class RubricGenerationService:
                 f"Never use weights below {weight_policy.negative_min} or above {weight_policy.positive_max}."
             )
         else:
+            count_text = (
+                "Generate the appropriate number of rubric objects necessary to fully evaluate the response quality for this localization case.\n"
+            )
             # Legacy fallback only for records/templates without formal RubricContract.
             weight_lines = (
                 "Rubrics_weight values must be from -5 to 10, except 0.\n"
@@ -382,7 +388,7 @@ class RubricGenerationService:
             "Evaluate localization quality, naturalness, cultural adaptation, instruction following, factuality when relevant, "
             "conversational appropriateness, safety, coherence, grounding, harmfulness, verbosity, formatting, and any other "
             "dimension materially relevant to the case.\n"
-            "Generate the appropriate number of rubric objects necessary to fully evaluate the response quality for this localization case.\n"
+            f"{count_text}"
             "Generate rubrics that are atomic, non-overlapping, discriminative, and useful for a human evaluator.\n"
             "Avoid redundancy and avoid multiple rubrics that reward the same behavior.\n"
             "Cover all major evaluation dimensions relevant to the case without forcing irrelevant dimensions.\n"
@@ -392,6 +398,9 @@ class RubricGenerationService:
             "Use varied weights that reflect actual importance; do not assign all rubrics high positive weights.\n"
             "Compare the prompt, response_raw, Golden Response excerpt, locale, category, and chat history when deciding coverage.\n"
             "Reflect meaningful differences between response_raw and the Golden Response excerpt when they matter.\n"
+            "Before returning, silently audit coverage: every explicit prompt constraint should have a corresponding positive or negative rubric, "
+            "and domain-specific risks such as unsupported factual claims, invented promises, tone failures, or missing required structure should be covered when relevant.\n"
+            "Do not force a fixed recipe of dimensions; choose the set that best covers the actual case.\n"
             "Do not infer repeated behavior, prior relationships, identity details, or user preferences unless the case data supports them.\n"
             "Do not invent context that is not supported by the provided case data.\n"
             "Use English for all field values.\n"
@@ -421,7 +430,72 @@ class RubricGenerationService:
             "Case data:\n"
             f"{json.dumps(case_payload, ensure_ascii=False, indent=2)}"
         )
-        return ProviderPrompt(system_contract=system_contract, task_payload=task_payload)
+        return ProviderPrompt(
+            system_contract=system_contract,
+            task_payload=task_payload,
+            response_schema=self._response_schema_for_contract(contract),
+        )
+
+    def _response_schema_for_contract(
+        self,
+        contract: RubricContract | None = None,
+    ) -> dict[str, Any]:
+        if contract:
+            weight_policy = contract.weight_policy
+            weight_min = weight_policy.negative_min
+            weight_max = weight_policy.positive_max
+            schema: dict[str, Any] = {
+                "type": "ARRAY",
+                "minItems": contract.expected_rubric_count,
+                "maxItems": contract.expected_rubric_count,
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "Rubric_dimensions": {
+                            "type": "STRING",
+                            "enum": contract.allowed_dimensions,
+                        },
+                        "Rubric_title": {"type": "STRING"},
+                        "Rubrics_description": {"type": "STRING"},
+                        "Rubrics_weight": {
+                            "type": "INTEGER" if weight_policy.integer_only else "NUMBER",
+                            "minimum": weight_min,
+                            "maximum": weight_max,
+                        },
+                        "is_response_specific": {"type": "BOOLEAN"},
+                    },
+                    "required": sorted(contract.required_fields),
+                },
+            }
+            return schema
+
+        return {
+            "type": "ARRAY",
+            "minItems": 1,
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "Rubric_dimensions": {
+                        "type": "STRING",
+                        "enum": [
+                            "Cultural Understanding and Application",
+                            "Local Facts and Awareness",
+                            "Logic and Formatting",
+                            "Natural Language Fluency",
+                        ],
+                    },
+                    "Rubric_title": {"type": "STRING"},
+                    "Rubrics_description": {"type": "STRING"},
+                    "Rubrics_weight": {
+                        "type": "INTEGER",
+                        "minimum": -5,
+                        "maximum": 10,
+                    },
+                    "is_response_specific": {"type": "BOOLEAN"},
+                },
+                "required": sorted(REQUIRED_RUBRIC_FIELDS),
+            },
+        }
 
     def _extract_rubrics(
         self,

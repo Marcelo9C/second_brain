@@ -239,6 +239,23 @@ class CandidateRecommendationServiceTest(unittest.TestCase):
         self.assertIn("Do not use confidential guidelines", prompt)
         self.assertNotIn("Rubric_dimensions", prompt)
 
+    def test_recommendation_prompt_uses_candidate_response_schema(self) -> None:
+        provider = FakeRecommendationProvider()
+
+        self.service(provider).recommend(recommendation_payload())
+
+        schema = provider.last_prompt.response_schema
+        self.assertEqual(schema["type"], "OBJECT")
+        self.assertEqual(
+            schema["required"],
+            ["recommended_candidate_id", "reason", "warnings"],
+        )
+        self.assertEqual(
+            schema["properties"]["recommended_candidate_id"]["enum"],
+            ["A", "B"],
+        )
+        self.assertNotIn("Rubric_dimensions", json.dumps(schema))
+
 
 if __name__ == "__main__":
     unittest.main()

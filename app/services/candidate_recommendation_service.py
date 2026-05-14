@@ -209,7 +209,28 @@ class CandidateRecommendationService:
             "Choose the best candidate for a revisable Golden Response draft.\n\n"
             f"{json.dumps(case_payload, ensure_ascii=False, indent=2)}"
         )
-        return ProviderPrompt(system_contract=system_contract, task_payload=task_payload)
+        return ProviderPrompt(
+            system_contract=system_contract,
+            task_payload=task_payload,
+            response_schema=self._response_schema_for_candidates(candidates),
+        )
+
+    def _response_schema_for_candidates(self, candidates: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "type": "OBJECT",
+            "properties": {
+                "recommended_candidate_id": {
+                    "type": "STRING",
+                    "enum": [candidate["id"] for candidate in candidates],
+                },
+                "reason": {"type": "STRING"},
+                "warnings": {
+                    "type": "ARRAY",
+                    "items": {"type": "STRING"},
+                },
+            },
+            "required": ["recommended_candidate_id", "reason", "warnings"],
+        }
 
     def _extract_recommendation(self, raw_response: str) -> dict[str, Any]:
         try:

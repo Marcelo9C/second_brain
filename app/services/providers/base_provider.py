@@ -13,6 +13,7 @@ class ProviderError(RuntimeError):
 class ProviderPrompt:
     system_contract: str
     task_payload: str
+    response_schema: dict[str, Any] | None = None
 
     def as_text(self) -> str:
         return f"{self.system_contract}\n\n{self.task_payload}"

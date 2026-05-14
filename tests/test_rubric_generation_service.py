@@ -342,6 +342,34 @@ class RubricGenerationServiceTest(unittest.TestCase):
         self.assertNotIn("Rubrics_weight values must be from -5 to 10", prompt)
         self.assertNotIn("-5 to -1", prompt)
 
+    def test_generation_prompt_uses_active_contract_response_schema(self) -> None:
+        contract = RubricContract.model_validate(
+            contract_for(
+                dimension="Natural Language Fluency",
+                negative_min=-7,
+                count=6,
+            )
+        )
+
+        prompt = self.service(FakeProvider())._build_prompt(
+            ready_payload(),
+            contract=contract,
+        )
+
+        self.assertIn("Generate exactly 6 rubric objects", prompt.as_text())
+        schema = prompt.response_schema
+        self.assertEqual(schema["type"], "ARRAY")
+        self.assertEqual(schema["minItems"], 6)
+        self.assertEqual(schema["maxItems"], 6)
+        item_schema = schema["items"]
+        self.assertEqual(
+            item_schema["properties"]["Rubric_dimensions"]["enum"],
+            ["Natural Language Fluency"],
+        )
+        self.assertEqual(item_schema["properties"]["Rubrics_weight"]["minimum"], -7)
+        self.assertEqual(item_schema["properties"]["Rubrics_weight"]["maximum"], 10)
+        self.assertEqual(item_schema["properties"]["Rubrics_weight"]["type"], "INTEGER")
+
     def test_generated_rubric_validation_uses_official_weight_scale(self) -> None:
         service = self.service(FakeProvider())
         valid_negative = generated_rubrics()

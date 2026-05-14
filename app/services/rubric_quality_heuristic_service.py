@@ -78,6 +78,92 @@ class RubricQualityHeuristicService:
         "tone",
         "style",
     )
+    _PROMPT_REQUIREMENT_PATTERNS = {
+        "subject line": (
+            "assunto",
+            "subject",
+            "subject line",
+        ),
+        "greeting": (
+            "saudacao",
+            "saudação",
+            "cumprimento",
+            "greeting",
+            "salutation",
+        ),
+        "signature": (
+            "assinatura",
+            "signature",
+            "sign-off",
+            "closing",
+        ),
+        "brevity": (
+            "curto",
+            "curta",
+            "breve",
+            "conciso",
+            "concisa",
+            "concise",
+            "short",
+        ),
+        "empathy": (
+            "empatico",
+            "empática",
+            "empático",
+            "empathy",
+            "empathetic",
+        ),
+        "tone": (
+            "tom",
+            "tone",
+            "formal",
+            "profissional",
+            "professional",
+            "motivacional",
+            "motivational",
+        ),
+        "format": (
+            "formato",
+            "estrutura",
+            "format",
+            "structure",
+        ),
+    }
+    _DOMAIN_RISK_PATTERNS = {
+        "customer_support_grounding": {
+            "case_terms": (
+                "cliente",
+                "customer",
+                "suporte",
+                "support",
+                "pedido",
+                "order",
+                "entrega",
+                "delivery",
+                "atraso",
+                "delay",
+                "reclamou",
+                "complaint",
+            ),
+            "coverage_terms": (
+                "accurate",
+                "accuracy",
+                "unsupported",
+                "invent",
+                "invented",
+                "fabricated",
+                "hallucinated",
+                "promise",
+                "deadline",
+                "refund",
+                "compensation",
+                "prazo",
+                "reembolso",
+                "compensacao",
+                "compensação",
+            ),
+        },
+    }
 
     def evaluate(
         self,
@@ -137,6 +223,7 @@ class RubricQualityHeuristicService:
             dimension_distribution,
             dominant_dimension,
         )
+        coverage_audit = self._coverage_audit(payload, rubric_list)
         has_negative_rubric = any(weight < 0 for weight in numeric_weights)
         missing_useful_penalty = self._missing_useful_penalty(
             has_negative_rubric=has_negative_rubric,
@@ -205,6 +292,21 @@ class RubricQualityHeuristicService:
                 "Category coverage appears narrow for the case; consider broader coverage if relevant."
             )
 
+        if coverage_audit["missing_prompt_requirements"]:
+            missing = ", ".join(coverage_audit["missing_prompt_requirements"])
+            messages.append(
+                f"Coverage audit: explicit prompt requirements not clearly represented in rubrics: {missing}."
+            )
+
+        if coverage_audit["domain_risk_coverage_gaps"]:
+            gaps = ", ".join(coverage_audit["domain_risk_coverage_gaps"])
+            messages.append(
+                f"Coverage audit: domain risk may need rubric coverage: {gaps}."
+            )
+
+        if coverage_audit["boilerplate_repetition_count"]:
+            messages.append("Repeated boilerplate detected in rubric descriptions.")
+
         return {
             "status": "warning" if messages else "pass",
             "blocking": False,
@@ -225,6 +327,10 @@ class RubricQualityHeuristicService:
                 "response_pair_differs": response_pair_differs,
                 "response_comparison_signal": response_comparison_signal,
                 "category_coverage_signal": category_coverage_signal,
+                "coverage_audit_status": coverage_audit["status"],
+                "missing_prompt_requirements": coverage_audit["missing_prompt_requirements"],
+                "domain_risk_coverage_gaps": coverage_audit["domain_risk_coverage_gaps"],
+                "boilerplate_repetition_count": coverage_audit["boilerplate_repetition_count"],
                 "dominant_dimension": dominant_dimension,
                 "dimension_distribution": dimension_distribution,
             },
@@ -481,6 +587,118 @@ class RubricQualityHeuristicService:
         if has_negative_rubric:
             return False
         return response_pair_differs or contextual_cue_detected or category_coverage_signal == "low"
+
+    def _coverage_audit(
+        self,
+        payload: dict[str, Any],
+        rubrics: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        prompt_text = self._normalize_text(
+            " ".join(
+                self._stringify(value)
+                for value in (payload.get("prompt"), payload.get("chat_history"))
+                if value is not None
+            )
+        )
+        case_text = self._normalize_text(self._case_text(payload))
+        rubric_text = self._normalize_text(
+            " ".join(
+                f"{rubric.get('Rubric_title', '')} {rubric.get('Rubrics_description', '')}"
+                for rubric in rubrics
+            )
+        )
+
+        detected_requirements = [
+            name
+            for name, aliases in self._PROMPT_REQUIREMENT_PATTERNS.items()
+            if self._contains_any(prompt_text, aliases)
+        ]
+        missing_prompt_requirements = [
+            name
+            for name in detected_requirements
+            if not self._requirement_is_covered(name, rubric_text)
+        ]
+
+        domain_risk_coverage_gaps = [
+            risk_name
+            for risk_name, pattern in self._DOMAIN_RISK_PATTERNS.items()
+            if self._contains_any(case_text, pattern["case_terms"])
+            and not self._contains_any(rubric_text, pattern["coverage_terms"])
+        ]
+        boilerplate_repetition_count = self._boilerplate_repetition_count(rubrics)
+        status = (
+            "warning"
+            if missing_prompt_requirements
+            or domain_risk_coverage_gaps
+            or boilerplate_repetition_count
+            else "pass"
+        )
+        return {
+            "status": status,
+            "missing_prompt_requirements": missing_prompt_requirements,
+            "domain_risk_coverage_gaps": domain_risk_coverage_gaps,
+            "boilerplate_repetition_count": boilerplate_repetition_count,
+        }
+
+    def _requirement_is_covered(self, requirement: str, rubric_text: str) -> bool:
+        aliases = self._PROMPT_REQUIREMENT_PATTERNS[requirement]
+        if self._contains_any(rubric_text, aliases):
+            return True
+        if requirement in {"subject line", "greeting", "signature"}:
+            return self._contains_any(
+                rubric_text,
+                (
+                    "email structure",
+                    "complete email",
+                    "required components",
+                    "required elements",
+                    "missing required elements",
+                ),
+            )
+        if requirement == "brevity":
+            return self._contains_any(rubric_text, ("conciseness", "concise", "brevity", "short"))
+        if requirement == "empathy":
+            return self._contains_any(rubric_text, ("empathy", "empathetic", "empathetic tone"))
+        if requirement == "tone":
+            return self._contains_any(rubric_text, ("tone", "register", "style"))
+        return False
+
+    def _boilerplate_repetition_count(self, rubrics: list[dict[str, Any]]) -> int:
+        repeated_count = 0
+        for rubric in rubrics:
+            description = self._normalize_text(rubric.get("Rubrics_description"))
+            words = description.split()
+            seen: set[tuple[str, ...]] = set()
+            repeated: set[tuple[str, ...]] = set()
+            for index in range(0, max(0, len(words) - 3)):
+                phrase = tuple(words[index : index + 4])
+                if phrase in seen:
+                    repeated.add(phrase)
+                seen.add(phrase)
+            if repeated:
+                repeated_count += 1
+        return repeated_count
+
+    def _contains_any(self, text: str, terms: tuple[str, ...]) -> bool:
+        return any(self._normalize_text(term) in text for term in terms)
+
+    def _normalize_text(self, value: Any) -> str:
+        text = self._stringify(value).lower()
+        normalized = (
+            text.replace("á", "a")
+            .replace("à", "a")
+            .replace("â", "a")
+            .replace("ã", "a")
+            .replace("é", "e")
+            .replace("ê", "e")
+            .replace("í", "i")
+            .replace("ó", "o")
+            .replace("ô", "o")
+            .replace("õ", "o")
+            .replace("ú", "u")
+            .replace("ç", "c")
+        )
+        return re.sub(r"\s+", " ", normalized).strip()
 
     def _chat_history_has_content(self, chat_history: Any) -> bool:
         if isinstance(chat_history, list):
