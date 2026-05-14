@@ -13,6 +13,8 @@ const ACCEPTED_RUBRIC_DIMENSIONS = new Set([
   "Natural Language Fluency",
 ]);
 
+const CANDIDATE_IDS = ["A", "B", "C", "D"];
+
 const state = {
   templates: [],
   currentTemplate: null,
@@ -28,6 +30,7 @@ const state = {
   humanQualityReviewed: false,
   lastValidationReport: null,
   backendValidationRequestId: 0,
+  goldenSource: { mode: "manual", candidate_id: null },
 };
 
 const API_BASE =
@@ -50,6 +53,17 @@ const elements = {
   chatHistory: document.querySelector("#chat-history"),
   prompt: document.querySelector("#prompt"),
   responseRaw: document.querySelector("#response-raw"),
+  responseRawLabel: document.querySelector("#response-raw-label"),
+  responseModeRadios: Array.from(document.querySelectorAll('input[name="response-mode"]')),
+  candidatePanel: document.querySelector("#candidate-response-panel"),
+  candidateSelectionStatus: document.querySelector("#candidate-selection-status"),
+  candidateSelectionWarning: document.querySelector("#candidate-selection-warning"),
+  candidateInputs: Object.fromEntries(
+    CANDIDATE_IDS.map((id) => [id, document.querySelector(`#candidate-response-${id}`)]),
+  ),
+  candidateRadios: Array.from(document.querySelectorAll('input[name="selected-candidate"]')),
+  candidateSlots: Array.from(document.querySelectorAll(".candidate-slot")),
+  useSelectedAsGolden: document.querySelector("#use-selected-as-golden"),
   goldenResponse: document.querySelector("#golden-response"),
   evaluatorNotes: document.querySelector("#evaluator-notes"),
   rubricsEditor: document.querySelector("#rubrics-editor"),
@@ -158,6 +172,234 @@ function parseTags() {
     .split(",")
     .map((tag) => tag.trim())
     .filter(Boolean);
+}
+
+function selectedCandidateId() {
+  return elements.candidateRadios.find((radio) => radio.checked)?.value || null;
+}
+
+function responseMode() {
+  return elements.responseModeRadios.find((radio) => radio.checked)?.value || "single";
+}
+
+function setResponseMode(mode) {
+  const nextMode = mode === "candidates" ? "candidates" : "single";
+  for (const radio of elements.responseModeRadios) {
+    radio.checked = radio.value === nextMode;
+  }
+  renderResponseMode();
+}
+
+function renderResponseMode() {
+  const isCandidateMode = responseMode() === "candidates";
+  elements.candidatePanel.hidden = !isCandidateMode;
+  elements.responseRaw.readOnly = isCandidateMode;
+  elements.responseRawLabel.textContent = isCandidateMode
+    ? "Response_raw avaliada"
+    : "Response_raw";
+  elements.responseRaw.placeholder = isCandidateMode
+    ? "Selecione uma candidata para resolver a resposta avaliada."
+    : "Resposta bruta do modelo.";
+  if (isCandidateMode) {
+    elements.responseRaw.value = selectedCandidateText();
+  }
+  renderCandidateSelectorState();
+}
+
+function candidateText(candidateId) {
+  return elements.candidateInputs[candidateId]?.value.trim() || "";
+}
+
+function selectedCandidateText() {
+  const candidateId = selectedCandidateId();
+  return candidateId ? candidateText(candidateId) : "";
+}
+
+function candidateResponsesFromInputs() {
+  return CANDIDATE_IDS
+    .map((id) => ({
+      id,
+      label: `Candidate ${id}`,
+      response_raw: candidateText(id),
+      source: "manual",
+    }))
+    .filter((candidate) => candidate.response_raw);
+}
+
+function candidatePayloadFields() {
+  if (responseMode() !== "candidates") {
+    return {
+      response_raw: elements.responseRaw.value.trim() || null,
+      candidate_responses: null,
+      selected_candidate_id: null,
+      response_raw_resolution: {
+        mode: "legacy_response_raw",
+        candidate_id: null,
+      },
+    };
+  }
+
+  const candidateResponses = candidateResponsesFromInputs();
+  const selectedId = selectedCandidateId();
+  if (!candidateResponses.length) {
+    return {
+      response_raw: null,
+      candidate_responses: null,
+      selected_candidate_id: null,
+      response_raw_resolution: {
+        mode: "no_candidate_selected",
+        candidate_id: null,
+      },
+    };
+  }
+
+  const selectedResponse = selectedCandidateText();
+  return {
+    response_raw: selectedResponse || null,
+    candidate_responses: candidateResponses,
+    selected_candidate_id: selectedId,
+    response_raw_resolution: selectedId
+      ? {
+          mode: "candidate_selected",
+          candidate_id: selectedId,
+        }
+      : {
+          mode: "selection_required",
+          candidate_id: null,
+        },
+  };
+}
+
+function candidateGenerationBlockReason() {
+  if (responseMode() !== "candidates") {
+    return null;
+  }
+
+  const candidateResponses = candidateResponsesFromInputs();
+  const selectedId = selectedCandidateId();
+  if (!candidateResponses.length) {
+    return "Carregue ao menos uma response_raw candidata antes de gerar rubrics.";
+  }
+  if (!selectedId) {
+    return "Selecione explicitamente qual candidata sera avaliada antes de gerar rubrics.";
+  }
+  if (!selectedCandidateText()) {
+    return `Candidate ${selectedId} esta vazia. Escolha uma candidata preenchida antes de gerar rubrics.`;
+  }
+  if (!candidateResponses.some((candidate) => candidate.id === selectedId)) {
+    return `Candidate ${selectedId} nao esta preenchida. Escolha uma candidata com texto antes de gerar rubrics.`;
+  }
+  return null;
+}
+
+function setSelectedCandidate(candidateId) {
+  for (const radio of elements.candidateRadios) {
+    radio.checked = radio.value === candidateId;
+  }
+}
+
+function setCandidateResponses(candidates = [], fallbackResponseRaw = "") {
+  const byId = new Map(
+    (Array.isArray(candidates) ? candidates : [])
+      .filter((candidate) => candidate && typeof candidate === "object")
+      .map((candidate) => [candidate.id, candidate.response_raw || ""]),
+  );
+
+  for (const id of CANDIDATE_IDS) {
+    elements.candidateInputs[id].value = byId.get(id) || "";
+  }
+
+  if (!byId.size && fallbackResponseRaw) {
+    elements.candidateInputs.A.value = fallbackResponseRaw;
+  }
+}
+
+function syncEvaluatedResponse() {
+  if (responseMode() !== "candidates") {
+    renderCandidateSelectorState();
+    return;
+  }
+  const selectedId = selectedCandidateId();
+  elements.responseRaw.value = selectedId ? selectedCandidateText() : "";
+  renderCandidateSelectorState();
+}
+
+function renderCandidateSelectorState() {
+  if (responseMode() !== "candidates") {
+    elements.candidateSelectionWarning.hidden = true;
+    elements.candidateSelectionWarning.textContent = "";
+    elements.candidateSelectionStatus.classList.remove("ok", "offline", "warning", "neutral");
+    elements.candidateSelectionStatus.classList.add("neutral");
+    elements.candidateSelectionStatus.textContent = "modo unico";
+    if (elements.useSelectedAsGolden) {
+      elements.useSelectedAsGolden.disabled = true;
+    }
+    for (const slot of elements.candidateSlots) {
+      slot.classList.remove("selected", "stale");
+    }
+    return;
+  }
+
+  const selectedId = selectedCandidateId();
+  const selectedText = selectedCandidateText();
+  const blockReason = candidateGenerationBlockReason();
+  const metadata = state.lastGenerationMetadata || {};
+  const generationCandidateId = metadata.selected_candidate_id;
+  const staleBySelection = Boolean(
+    generationCandidateId &&
+      selectedId &&
+      generationCandidateId !== selectedId,
+  );
+  const staleMetadata = isStaleGeneration(metadata);
+
+  elements.candidateSelectionStatus.classList.remove("ok", "offline", "warning", "neutral");
+  for (const slot of elements.candidateSlots) {
+    const slotId = slot.dataset.candidateId;
+    slot.classList.toggle("selected", slotId === selectedId);
+    slot.classList.toggle("stale", staleBySelection && slotId === selectedId);
+  }
+
+  if (selectedId && selectedText && !staleBySelection && !staleMetadata) {
+    elements.candidateSelectionStatus.classList.add("ok");
+    elements.candidateSelectionStatus.textContent = `avaliando ${selectedId}`;
+  } else if (selectedId && selectedText) {
+    elements.candidateSelectionStatus.classList.add("warning");
+    elements.candidateSelectionStatus.textContent = `avaliando ${selectedId}`;
+  } else {
+    elements.candidateSelectionStatus.classList.add("warning");
+    elements.candidateSelectionStatus.textContent = "sem selecao";
+  }
+
+  const warning = staleBySelection
+    ? `A ultima geracao usou Candidate ${generationCandidateId}; a selecao atual e Candidate ${selectedId}. Gere novamente antes de revisar.`
+    : staleMetadata
+      ? "A geracao atual esta desatualizada para o estado do caso. Gere novamente antes de revisar."
+      : blockReason;
+
+  elements.candidateSelectionWarning.hidden = !warning;
+  elements.candidateSelectionWarning.textContent = warning || "";
+  if (elements.useSelectedAsGolden) {
+    elements.useSelectedAsGolden.disabled = !(selectedId && selectedText);
+  }
+}
+
+function markGenerationStale(reason = "case_changed_after_generation", extra = {}) {
+  const hadGeneration = Boolean(state.lastGenerationMetadata || state.lastRawModelResponse);
+  state.lastGenerationMetadata = null;
+  state.lastRawModelResponse = null;
+  state.lastValidationReport = null;
+  if (hadGeneration) {
+    state.lastGenerationMetadata = {
+      ...(extra.previous_metadata || {}),
+      generation_state: "stale",
+      validation_status: "stale",
+      generation_executed: false,
+      stale: true,
+      stale_reason: reason,
+      ...extra,
+    };
+    delete state.lastGenerationMetadata.previous_metadata;
+  }
 }
 
 function editorHasAppliedRubrics() {
@@ -369,6 +611,13 @@ function renderGenerationDiagnostics(metadata = null) {
     "model_to_call",
     "default_model_used",
     "generation_failure_type",
+    "candidate_count",
+    "selected_candidate_id",
+    "selected_candidate_label",
+    "generation_state",
+    "stale",
+    "stale_reason",
+    "current_selected_candidate_id",
     "fallback_applied",
     "model_allowed_by_backend",
     "exact_url_called",
@@ -438,7 +687,9 @@ function renderGenerationSummary(metadata) {
       elements.generationSummary,
       "warning",
       "Geracao stale",
-      "O caso foi alterado depois da ultima geracao. Gere novamente ou revise manualmente.",
+      metadata.stale_reason === "selected_candidate_changed_after_generation"
+        ? "A selecao de candidata mudou depois da ultima geracao. Gere novamente contra a candidata atual."
+        : "O caso foi alterado depois da ultima geracao. Gere novamente ou revise manualmente.",
     );
     return;
   }
@@ -511,7 +762,12 @@ function hasFailedGenerationResult(metadata = state.lastGenerationMetadata) {
 }
 
 function isStaleGeneration(metadata = state.lastGenerationMetadata) {
-  return metadata?.generation_state === "stale" || metadata?.validation_status === "stale";
+  return Boolean(
+    metadata?.generation_state === "stale" ||
+      metadata?.generation_state === "stale_generation" ||
+      metadata?.validation_status === "stale" ||
+      metadata?.stale === true,
+  );
 }
 
 function generationPresentation(
@@ -768,8 +1024,21 @@ function fillCase(record) {
     ? JSON.stringify(record.chat_history, null, 2)
     : "";
   elements.prompt.value = record?.prompt || "";
-  elements.responseRaw.value = record?.response_raw || "";
+  const storedCandidates = record?.metadata?.candidate_responses || [];
+  setResponseMode(Array.isArray(storedCandidates) && storedCandidates.length ? "candidates" : "single");
+  setCandidateResponses(record?.metadata?.candidate_responses || [], record?.response_raw || "");
+  setSelectedCandidate(
+    record?.metadata?.selected_candidate_id ||
+      record?.metadata?.rubric_generation?.selected_candidate_id ||
+      (responseMode() === "candidates" && record?.response_raw ? "A" : null),
+  );
+  if (responseMode() === "single") {
+    elements.responseRaw.value = record?.response_raw || "";
+  } else {
+    syncEvaluatedResponse();
+  }
   elements.goldenResponse.value = record?.golden_response || "";
+  state.goldenSource = record?.metadata?.golden_source || { mode: "manual", candidate_id: null };
   elements.evaluatorNotes.value = record?.evaluator_notes || "";
   elements.tagsInput.value = Array.isArray(record?.tags) ? record.tags.join(", ") : "";
   state.lastGenerationMetadata = record?.metadata?.rubric_generation || null;
@@ -791,8 +1060,12 @@ function resetCase() {
   elements.caseCategory.value = elements.categorySelect.value;
   elements.chatHistory.value = "";
   elements.prompt.value = "";
+  setResponseMode("single");
+  setCandidateResponses();
+  setSelectedCandidate(null);
   elements.responseRaw.value = "";
   elements.goldenResponse.value = "";
+  state.goldenSource = { mode: "manual", candidate_id: null };
   elements.evaluatorNotes.value = "";
   elements.tagsInput.value = "";
   state.lastGenerationMetadata = null;
@@ -810,6 +1083,8 @@ function buildPayload(statusOverride = null) {
   if (statusOverride === "reviewed") {
     state.humanQualityReviewed = true;
   }
+  syncEvaluatedResponse();
+  const candidatePayload = candidatePayloadFields();
   const validation = renderValidation();
   const contractState = editorContractState();
   const status = statusOverride || elements.statusSelect.value;
@@ -822,7 +1097,7 @@ function buildPayload(statusOverride = null) {
     ? contractState.editorArtifact || contractState.currentTemplate
     : contractState.currentTemplate;
 
-  return {
+  const payload = {
     locale: validation.rubrics?.length && artifactTemplate?.locale
       ? artifactTemplate.locale
       : elements.localeSelect.value,
@@ -831,7 +1106,7 @@ function buildPayload(statusOverride = null) {
       : elements.categorySelect.value,
     chat_history: parseChatHistory(),
     prompt: elements.prompt.value.trim() || null,
-    response_raw: elements.responseRaw.value.trim() || null,
+    response_raw: candidatePayload.response_raw,
     golden_response: elements.goldenResponse.value.trim() || null,
     evaluator_notes: elements.evaluatorNotes.value.trim() || null,
     template_name:
@@ -871,11 +1146,24 @@ function buildPayload(statusOverride = null) {
       current_template_contract: state.currentTemplate?.contract || null,
       contract_mismatch: contractState.hasContractMismatch,
       human_quality_reviewed: state.humanQualityReviewed,
+      golden_source: state.goldenSource || { mode: "manual", candidate_id: null },
       validation_report: validation.report,
       rubric_generation: state.lastGenerationMetadata,
       raw_model_response: state.lastRawModelResponse,
     },
   };
+
+  if (candidatePayload.candidate_responses?.length) {
+    payload.candidate_responses = candidatePayload.candidate_responses;
+    payload.metadata.candidate_responses = candidatePayload.candidate_responses;
+    payload.metadata.response_raw_resolution = candidatePayload.response_raw_resolution;
+    if (candidatePayload.response_raw) {
+      payload.selected_candidate_id = candidatePayload.selected_candidate_id;
+      payload.metadata.selected_candidate_id = candidatePayload.selected_candidate_id;
+    }
+  }
+
+  return payload;
 }
 
 async function loadTemplates() {
@@ -930,7 +1218,7 @@ async function loadProviderModels() {
   if (!provider) {
     state.modelsLoading = false;
     renderModelSelect();
-    elements.generateRubrics.disabled = false;
+    updateGenerateButtonState();
     return;
   }
 
@@ -952,7 +1240,7 @@ async function loadProviderModels() {
   state.models = models;
   state.modelsLoading = false;
   renderModelSelect();
-  elements.generateRubrics.disabled = false;
+  updateGenerateButtonState();
 }
 
 function renderModelSelect() {
@@ -1277,12 +1565,21 @@ async function generateRubrics() {
     throw new Error("Aguarde o carregamento dos modelos do provider selecionado.");
   }
 
+  syncEvaluatedResponse();
+  const blockReason = candidateGenerationBlockReason();
+  if (blockReason) {
+    renderCandidateSelectorState();
+    updateGenerateButtonState();
+    throw new Error(blockReason);
+  }
+
   if (!state.currentTemplate) {
     await loadTemplate();
   }
 
   const providerRequested = elements.rubricProviderSelect.value || undefined;
   const modelRequested = elements.rubricModelSelect.value || null;
+  const candidatePayload = candidatePayloadFields();
   const validation = renderValidation();
   const baseTemplate = state.currentTemplate?.rubrics || validation.rubrics;
   if (!baseTemplate) {
@@ -1304,12 +1601,20 @@ async function generateRubrics() {
         category: elements.categorySelect.value,
         chat_history: parseChatHistory(),
         prompt: elements.prompt.value.trim() || null,
-        response_raw: elements.responseRaw.value.trim() || null,
+        response_raw: candidatePayload.response_raw,
         golden_response: elements.goldenResponse.value.trim() || null,
         base_template: baseTemplate,
         contract: state.currentTemplate?.contract || null,
         provider: providerRequested,
         model: modelRequested,
+        candidate_responses: candidatePayload.candidate_responses,
+        selected_candidate_id: candidatePayload.selected_candidate_id,
+        metadata: {
+          candidate_responses: candidatePayload.candidate_responses,
+          selected_candidate_id: candidatePayload.selected_candidate_id,
+          response_raw_resolution: candidatePayload.response_raw_resolution,
+          golden_source: state.goldenSource || { mode: "manual", candidate_id: null },
+        },
       }),
     });
 
@@ -1320,6 +1625,7 @@ async function generateRubrics() {
       category: state.currentTemplate?.category || elements.categorySelect.value,
       locale: state.currentTemplate?.locale || elements.localeSelect.value,
     };
+    renderCandidateSelectorState();
     state.lastRawModelResponse = result.raw_model_response || null;
     state.backendValidationRequestId += 1;
     renderGenerationDiagnostics(state.lastGenerationMetadata);
@@ -1356,6 +1662,7 @@ async function generateRubrics() {
     elements.generateRubrics.classList.remove("generating");
     elements.generateRubrics.removeAttribute("aria-busy");
     elements.generateRubrics.textContent = "Gerar com IA";
+    updateGenerateButtonState();
   }
 }
 
@@ -1624,6 +1931,7 @@ function validateApprovalReadiness(
 }
 
 function requiredCaseFieldsMissing() {
+  syncEvaluatedResponse();
   const fields = [
     ["locale", elements.localeSelect.value],
     ["category", elements.categorySelect.value],
@@ -1639,6 +1947,7 @@ function layer(status, message, blocking = false, extra = {}) {
 }
 
 function renderValidation() {
+  syncEvaluatedResponse();
   const result = validateRubrics();
   elements.validationOutput.textContent = result.message;
   state.lastValidationReport = result.report;
@@ -1656,6 +1965,7 @@ function requestBackendQualityHeuristics(result) {
   const structureOk = result.report?.structureValidation?.status === "pass";
   const formatOk = result.report?.formatValidation?.status === "pass";
   const contractState = editorContractState();
+  const candidatePayload = candidatePayloadFields();
 
   if (!Array.isArray(result.rubrics) || !structureOk || !formatOk) {
     renderQualityHeuristics({
@@ -1676,12 +1986,15 @@ function requestBackendQualityHeuristics(result) {
       locale: elements.localeSelect.value,
       category: elements.categorySelect.value,
       prompt: elements.prompt.value.trim() || null,
-      response_raw: elements.responseRaw.value.trim() || null,
+      response_raw: candidatePayload.response_raw,
       golden_response: elements.goldenResponse.value.trim() || null,
       rubrics: result.rubrics,
       contract: contractState.editorContract || state.currentTemplate?.contract || null,
       metadata: {
         human_quality_reviewed: state.humanQualityReviewed,
+        candidate_responses: candidatePayload.candidate_responses || [],
+        selected_candidate_id: candidatePayload.selected_candidate_id,
+        response_raw_resolution: candidatePayload.response_raw_resolution,
         template_contract: contractState.editorContract || state.currentTemplate?.contract || null,
         current_template_contract: state.currentTemplate?.contract || null,
         contract_mismatch: contractState.hasContractMismatch,
@@ -2014,6 +2327,29 @@ function formatQualitySignal(value) {
   return String(value);
 }
 
+function updateGenerateButtonState() {
+  const blockReason = candidateGenerationBlockReason();
+  const missingPrompt = !elements.prompt.value.trim();
+  const missingGolden = !elements.goldenResponse.value.trim();
+  const missingTemplate = !state.currentTemplate;
+  const blocked = Boolean(state.modelsLoading || blockReason || missingPrompt || missingGolden || missingTemplate);
+
+  elements.generateRubrics.disabled = blocked;
+  if (state.modelsLoading) {
+    elements.generateRubrics.title = "Aguarde o carregamento dos modelos.";
+  } else if (blockReason) {
+    elements.generateRubrics.title = blockReason;
+  } else if (missingPrompt) {
+    elements.generateRubrics.title = "Preencha o prompt antes de gerar rubrics.";
+  } else if (missingGolden) {
+    elements.generateRubrics.title = "Preencha a Golden Response antes de gerar rubrics.";
+  } else if (missingTemplate) {
+    elements.generateRubrics.title = "Carregue um template antes de gerar rubrics.";
+  } else {
+    elements.generateRubrics.removeAttribute("title");
+  }
+}
+
 function updateActionStates(report = state.lastValidationReport) {
   const structureOk = report?.structureValidation?.status === "pass";
   const formatOk = report?.formatValidation?.status === "pass";
@@ -2023,6 +2359,7 @@ function updateActionStates(report = state.lastValidationReport) {
   elements.markApproved.disabled = !approvalOk || hasContractMismatch;
   elements.exportJsonl.disabled = hasContractMismatch;
   elements.exportCsv.disabled = hasContractMismatch;
+  updateGenerateButtonState();
 }
 
 elements.loadTemplate.addEventListener("click", () => {
@@ -2041,20 +2378,14 @@ function invalidateQualityReview() {
   renderValidation();
 }
 
-function invalidateGenerationMetadata() {
-  const hadGeneration = Boolean(state.lastGenerationMetadata || state.lastRawModelResponse);
-  state.lastGenerationMetadata = null;
-  state.lastRawModelResponse = null;
-  state.lastValidationReport = null;
-  if (hadGeneration) {
-    state.lastGenerationMetadata = {
-      generation_state: "stale",
-      validation_status: "stale",
-      generation_executed: false,
-    };
-  }
+function invalidateGenerationMetadata(reason = "case_changed_after_generation", extra = {}) {
+  markGenerationStale(reason, {
+    previous_metadata: state.lastGenerationMetadata || {},
+    ...extra,
+  });
   renderGenerationDiagnostics(state.lastGenerationMetadata);
   renderRawModelResponse();
+  renderCandidateSelectorState();
   renderValidation();
 }
 
@@ -2069,11 +2400,66 @@ elements.prompt.addEventListener("input", () => {
   invalidateQualityReview();
   invalidateGenerationMetadata();
 });
+for (const radio of elements.responseModeRadios) {
+  radio.addEventListener("change", () => {
+    if (radio.value === "candidates" && radio.checked) {
+      const existingResponse = elements.responseRaw.value.trim();
+      if (existingResponse && !candidateResponsesFromInputs().length) {
+        elements.candidateInputs.A.value = existingResponse;
+        setSelectedCandidate("A");
+      }
+    }
+    renderResponseMode();
+    invalidateQualityReview();
+    invalidateGenerationMetadata("response_mode_changed_after_generation", {
+      response_mode: responseMode(),
+      current_selected_candidate_id: selectedCandidateId(),
+    });
+  });
+}
 elements.responseRaw.addEventListener("input", () => {
+  if (responseMode() !== "single") {
+    return;
+  }
   invalidateQualityReview();
   invalidateGenerationMetadata();
 });
+for (const radio of elements.candidateRadios) {
+  radio.addEventListener("change", () => {
+    syncEvaluatedResponse();
+    invalidateQualityReview();
+    invalidateGenerationMetadata("selected_candidate_changed_after_generation", {
+      current_selected_candidate_id: selectedCandidateId(),
+      selected_candidate_id: state.lastGenerationMetadata?.selected_candidate_id || null,
+    });
+  });
+}
+for (const [candidateId, textarea] of Object.entries(elements.candidateInputs)) {
+  textarea.addEventListener("input", () => {
+    syncEvaluatedResponse();
+    invalidateQualityReview();
+    invalidateGenerationMetadata("candidate_response_changed_after_generation", {
+      changed_candidate_id: candidateId,
+      current_selected_candidate_id: selectedCandidateId(),
+    });
+  });
+}
+elements.useSelectedAsGolden.addEventListener("click", () => {
+  const candidateId = selectedCandidateId();
+  const response = selectedCandidateText();
+  if (!candidateId || !response) {
+    showToast("Selecione uma candidata preenchida.", "warning");
+    return;
+  }
+  elements.goldenResponse.value = response;
+  state.goldenSource = { mode: "from_selected_candidate", candidate_id: candidateId };
+  invalidateQualityReview();
+  invalidateGenerationMetadata("golden_response_changed_after_generation", {
+    current_selected_candidate_id: candidateId,
+  });
+});
 elements.goldenResponse.addEventListener("input", () => {
+  state.goldenSource = { mode: "manual", candidate_id: null };
   invalidateQualityReview();
   invalidateGenerationMetadata();
 });

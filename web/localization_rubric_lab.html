@@ -131,10 +131,69 @@
               <textarea id="prompt" rows="4" placeholder="Prompt original do caso."></textarea>
             </label>
 
-            <label>
-              <span>Response_raw</span>
+            <fieldset class="response-mode-selector">
+              <legend>Modo de resposta</legend>
+              <label>
+                <input type="radio" name="response-mode" value="single" checked />
+                <span>1 response_raw + Golden</span>
+              </label>
+              <label>
+                <input type="radio" name="response-mode" value="candidates" />
+                <span>4 response_raw candidatas</span>
+              </label>
+            </fieldset>
+
+            <label id="response-raw-field">
+              <span id="response-raw-label">Response_raw</span>
               <textarea id="response-raw" rows="5" placeholder="Resposta bruta do modelo."></textarea>
             </label>
+
+            <section id="candidate-response-panel" class="candidate-response-panel" aria-labelledby="candidate-responses-title" hidden>
+              <div class="workbench-panel-header">
+                <div>
+                  <span class="panel-kicker">Novo cenário</span>
+                  <h3 id="candidate-responses-title">4 respostas candidatas</h3>
+                </div>
+                <span id="candidate-selection-status" class="badge warning">sem selecao</span>
+              </div>
+
+              <div id="candidate-selection-warning" class="candidate-selection-warning" hidden></div>
+
+              <div class="candidate-slots" aria-label="Respostas candidatas">
+                <article class="candidate-slot" data-candidate-id="A">
+                  <label class="candidate-slot-choice">
+                    <input type="radio" name="selected-candidate" value="A" />
+                    <span>A</span>
+                  </label>
+                  <textarea id="candidate-response-A" rows="4" placeholder="Candidate A response_raw"></textarea>
+                </article>
+                <article class="candidate-slot" data-candidate-id="B">
+                  <label class="candidate-slot-choice">
+                    <input type="radio" name="selected-candidate" value="B" />
+                    <span>B</span>
+                  </label>
+                  <textarea id="candidate-response-B" rows="4" placeholder="Candidate B response_raw"></textarea>
+                </article>
+                <article class="candidate-slot" data-candidate-id="C">
+                  <label class="candidate-slot-choice">
+                    <input type="radio" name="selected-candidate" value="C" />
+                    <span>C</span>
+                  </label>
+                  <textarea id="candidate-response-C" rows="4" placeholder="Candidate C response_raw"></textarea>
+                </article>
+                <article class="candidate-slot" data-candidate-id="D">
+                  <label class="candidate-slot-choice">
+                    <input type="radio" name="selected-candidate" value="D" />
+                    <span>D</span>
+                  </label>
+                  <textarea id="candidate-response-D" rows="4" placeholder="Candidate D response_raw"></textarea>
+                </article>
+              </div>
+
+              <div class="candidate-preview">
+                <button id="use-selected-as-golden" class="ghost" type="button">Usar selecionada como base da Golden</button>
+              </div>
+            </section>
 
             <label>
               <span>Golden Response</span>
