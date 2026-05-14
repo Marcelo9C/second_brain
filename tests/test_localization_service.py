@@ -197,6 +197,94 @@ class LocalizationServiceTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "contract_mismatch"):
                 service.active_contract_for_payload(payload, verify_payload_contract=True)
 
+    def test_create_case_persists_candidate_responses_in_metadata(self) -> None:
+        service = LocalizationService(
+            repository=StubRepository(),
+            localization_dir=Path("Localization"),
+        )
+
+        record = service.create_case(
+            {
+                "locale": "pt-BR",
+                "category": "Writing",
+                "prompt": "Synthetic prompt.",
+                "response_raw": "Stale legacy response.",
+                "golden_response": "Synthetic golden response.",
+                "chat_history": [],
+                "evaluator_notes": None,
+                "template_name": "writing_template.json",
+                "template_version": "1.0",
+                "rubrics": [],
+                "status": "draft",
+                "tags": [],
+                "metadata": {},
+                "candidate_responses": [
+                    {"id": "A", "response_raw": "Candidate A response."},
+                ],
+                "selected_candidate_id": "A",
+            }
+        )
+
+        self.assertEqual(record["response_raw"], "Candidate A response.")
+        self.assertEqual(record["metadata"]["selected_candidate_id"], "A")
+        self.assertEqual(record["metadata"]["candidate_responses"][0]["id"], "A")
+        self.assertNotIn("candidate_responses", record)
+        self.assertNotIn("selected_candidate_id", record)
+
+    def test_candidate_selection_change_after_generation_is_marked_stale(self) -> None:
+        service = LocalizationService(
+            repository=StubRepository(),
+            localization_dir=Path("Localization"),
+        )
+
+        record = service.create_case(
+            {
+                "locale": "pt-BR",
+                "category": "Writing",
+                "prompt": "Synthetic prompt.",
+                "response_raw": None,
+                "golden_response": "Synthetic golden response.",
+                "chat_history": [],
+                "evaluator_notes": None,
+                "template_name": "writing_template.json",
+                "template_version": "1.0",
+                "rubrics": [],
+                "status": "draft",
+                "tags": [],
+                "metadata": {
+                    "rubric_generation": {
+                        "selected_candidate_id": "A",
+                        "validation_status": "valid",
+                    },
+                    "candidate_responses": [
+                        {"id": "A", "response_raw": "Candidate A response."},
+                        {"id": "B", "response_raw": "Candidate B response."},
+                    ],
+                    "selected_candidate_id": "B",
+                },
+            }
+        )
+
+        self.assertEqual(record["response_raw"], "Candidate B response.")
+        self.assertTrue(record["metadata"]["rubric_generation"]["stale"])
+        self.assertEqual(
+            record["metadata"]["rubric_generation"]["stale_reason"],
+            "selected_candidate_changed_after_generation",
+        )
+        self.assertEqual(
+            record["metadata"]["rubric_generation"]["generation_state"],
+            "stale_generation",
+        )
+        self.assertEqual(
+            record["metadata"]["rubric_generation"]["current_selected_candidate_id"],
+            "B",
+        )
+        self.assertTrue(record["metadata"]["candidate_selection_state"]["stale"])
+        self.assertEqual(
+            record["metadata"]["candidate_selection_state"]["reason"],
+            "selected_candidate_changed_after_generation",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

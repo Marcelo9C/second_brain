@@ -5,7 +5,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from app.schemas.localization import REQUIRED_RUBRIC_FIELDS, validate_rubric_payload
+from app.schemas.localization import (
+    REQUIRED_RUBRIC_FIELDS,
+    normalize_candidate_response_payload,
+    validate_rubric_payload,
+)
 from app.schemas.rubric_contract import RubricContract
 from app.services.providers.base_provider import BaseProvider, ProviderError, ProviderPrompt
 from app.services.localization_workflow_engine import (
@@ -41,6 +45,8 @@ class RubricGenerationService:
         *,
         active_contract: RubricContract | None = None,
     ) -> dict[str, Any]:
+        payload = normalize_candidate_response_payload(payload, require_selection=True)
+        candidate_audit = self._candidate_generation_audit(payload)
         workflow_decision = self.workflow_engine.resolve(
             WorkflowIntent.GENERATE_WITH_AI,
             CaseStateSnapshot.from_payload(payload),
@@ -54,6 +60,7 @@ class RubricGenerationService:
                     "generation_failure_type": "none",
                     "workflow_decision": workflow_decision.to_dict(),
                     "fallback_applied": False,
+                    **candidate_audit,
                 },
                 "raw_model_response": None,
                 "error": workflow_decision.reason,
@@ -91,6 +98,7 @@ class RubricGenerationService:
                         "fallback_applied": False,
                         "blocked_reason": "default_model_not_configured",
                         "workflow_decision": blocked_decision,
+                        **candidate_audit,
                     },
                     "raw_model_response": None,
                     "error": blocked_decision["message"],
@@ -125,6 +133,7 @@ class RubricGenerationService:
                     "fallback_applied": False,
                     "blocked_reason": "model_not_allowed_by_backend",
                     "workflow_decision": blocked_decision,
+                    **candidate_audit,
                 },
                 "raw_model_response": None,
                 "error": blocked_decision["message"],
@@ -148,6 +157,7 @@ class RubricGenerationService:
             "generation_failure_type": "none",
             "template_used": self._template_name_for_category(payload.get("category")),
             "generation_executed": True,
+            **candidate_audit,
         }
 
         try:
@@ -508,6 +518,43 @@ class RubricGenerationService:
             "Knowledge": "knowledge_template.json",
         }
         return names.get(str(category), "base_template")
+
+    def _candidate_generation_audit(self, payload: dict[str, Any]) -> dict[str, Any]:
+        metadata = payload.get("metadata") or {}
+        candidates = metadata.get("candidate_responses")
+        if not isinstance(candidates, list):
+            return {
+                "candidate_count": 0,
+                "selected_candidate_id": None,
+                "selected_candidate_label": None,
+                "response_raw_resolution": {
+                    "mode": "legacy_response_raw",
+                    "candidate_id": None,
+                },
+            }
+
+        selected_candidate_id = metadata.get("selected_candidate_id")
+        selected_candidate = next(
+            (
+                candidate
+                for candidate in candidates
+                if isinstance(candidate, dict) and candidate.get("id") == selected_candidate_id
+            ),
+            None,
+        )
+        return {
+            "candidate_count": len(candidates),
+            "selected_candidate_id": selected_candidate_id,
+            "selected_candidate_label": (
+                selected_candidate.get("label") if isinstance(selected_candidate, dict) else None
+            ),
+            "response_raw_resolution": metadata.get("response_raw_resolution")
+            or {
+                "mode": "candidate_selected",
+                "candidate_id": selected_candidate_id,
+            },
+            "candidate_responses": candidates,
+        }
 
     def _generation_decision(
         self,

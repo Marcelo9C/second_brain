@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.repositories.localization_repository import LocalizationRubricCaseRepository
+from app.schemas.localization import normalize_candidate_response_payload
 from app.schemas.rubric_contract import RubricContract, parse_template_contract
 from app.services.rubric_validation_service import RubricValidationService
 
@@ -87,6 +88,7 @@ class LocalizationService:
         return contract
 
     def create_case(self, payload: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_candidate_fields_for_persistence(payload)
         self._assert_can_persist_status(payload)
         return self.repository.create(payload)
 
@@ -109,6 +111,7 @@ class LocalizationService:
         return self.repository.get_by_id(case_id)
 
     def update_case(self, case_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        payload = self._normalize_candidate_fields_for_persistence(payload)
         if payload.get("status") in {"reviewed", "approved"}:
             existing = self.repository.get_by_id(case_id) or {}
             merged_payload = {
@@ -304,3 +307,28 @@ class LocalizationService:
         provided_contract = RubricContract.model_validate(contract_payload)
         if provided_contract.model_dump(mode="json") != formal_contract.model_dump(mode="json"):
             raise ValueError("contract_mismatch: payload contract differs from formal template contract.")
+
+    def _normalize_candidate_fields_for_persistence(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = normalize_candidate_response_payload(payload, require_selection=False)
+        metadata = dict(normalized.get("metadata") or {})
+        generation = metadata.get("rubric_generation") or {}
+        generated_candidate_id = generation.get("selected_candidate_id")
+        selected_candidate_id = metadata.get("selected_candidate_id")
+        if generated_candidate_id and selected_candidate_id and generated_candidate_id != selected_candidate_id:
+            generation = dict(generation)
+            generation["stale"] = True
+            generation["stale_reason"] = "selected_candidate_changed_after_generation"
+            generation["generation_state"] = "stale_generation"
+            generation["current_selected_candidate_id"] = selected_candidate_id
+            metadata["rubric_generation"] = generation
+            metadata["candidate_selection_state"] = {
+                "stale": True,
+                "reason": "selected_candidate_changed_after_generation",
+                "generated_candidate_id": generated_candidate_id,
+                "selected_candidate_id": selected_candidate_id,
+            }
+
+        normalized["metadata"] = metadata
+        normalized.pop("candidate_responses", None)
+        normalized.pop("selected_candidate_id", None)
+        return normalized

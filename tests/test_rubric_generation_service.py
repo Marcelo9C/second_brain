@@ -164,6 +164,102 @@ class RubricGenerationServiceTest(unittest.TestCase):
         self.assertEqual(result["metadata"]["generation_failure_type"], "none")
         self.assertEqual(result["workflow_decision"]["decision"], "generation_succeeded")
 
+    def test_candidate_responses_resolve_response_raw_before_provider_call(self) -> None:
+        provider = FakeProvider()
+
+        result = self.service(provider).generate(
+            ready_payload(
+                response_raw="Stale legacy response.",
+                candidate_responses=[
+                    {"id": "A", "label": "Candidate A", "response_raw": "Unselected A response."},
+                    {"id": "B", "label": "Candidate B", "response_raw": "Selected B response."},
+                ],
+                selected_candidate_id="B",
+            )
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["metadata"]["selected_candidate_id"], "B")
+        self.assertEqual(result["metadata"]["selected_candidate_label"], "Candidate B")
+        self.assertEqual(result["metadata"]["candidate_count"], 2)
+        self.assertEqual(
+            result["metadata"]["response_raw_resolution"]["mode"],
+            "candidate_selected",
+        )
+        prompt_text = provider.last_prompt.as_text()
+        self.assertIn('"response_raw": "Selected B response."', prompt_text)
+        self.assertNotIn("Unselected A response.", prompt_text)
+        self.assertNotIn("Stale legacy response.", prompt_text)
+
+    def test_candidate_response_metadata_is_supported_without_top_level_fields(self) -> None:
+        provider = FakeProvider()
+
+        result = self.service(provider).generate(
+            ready_payload(
+                response_raw=None,
+                metadata={
+                    "candidate_responses": [
+                        {"id": "A", "response_raw": "Selected metadata response."},
+                    ],
+                    "selected_candidate_id": "A",
+                },
+            )
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["metadata"]["selected_candidate_id"], "A")
+        self.assertIn("Selected metadata response.", provider.last_prompt.as_text())
+
+    def test_candidate_response_missing_selection_is_rejected_before_provider_call(self) -> None:
+        provider = FakeProvider()
+
+        with self.assertRaisesRegex(ValueError, "selected_candidate_id is required"):
+            self.service(provider).generate(
+                ready_payload(
+                    candidate_responses=[
+                        {"id": "A", "response_raw": "Candidate A response."},
+                    ],
+                    selected_candidate_id=None,
+                )
+            )
+
+        self.assertEqual(provider.calls, 0)
+
+    def test_candidate_response_empty_selected_candidate_is_rejected_before_provider_call(self) -> None:
+        provider = FakeProvider()
+
+        with self.assertRaisesRegex(ValueError, "cannot be empty"):
+            self.service(provider).generate(
+                ready_payload(
+                    candidate_responses=[
+                        {"id": "A", "response_raw": ""},
+                    ],
+                    selected_candidate_id="A",
+                )
+            )
+
+        self.assertEqual(provider.calls, 0)
+
+    def test_candidate_response_with_empty_golden_remains_not_ready(self) -> None:
+        provider = FakeProvider()
+
+        result = self.service(provider).generate(
+            ready_payload(
+                golden_response="",
+                response_raw=None,
+                candidate_responses=[
+                    {"id": "A", "response_raw": "Selected A response."},
+                ],
+                selected_candidate_id="A",
+            )
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual(provider.calls, 0)
+        self.assertFalse(result["metadata"]["generation_executed"])
+        self.assertEqual(result["metadata"]["selected_candidate_id"], "A")
+        self.assertIn("golden_response", result["workflow_decision"]["missing_fields"])
+
     def test_requested_ollama_provider_and_model_are_called(self) -> None:
         ollama = FakeProvider(name="ollama", models=["phi3:mini"], default_model_name="phi3:mini")
         gemini = FakeProvider(name="gemini", models=["gemini-2.5-flash"], default_model_name="gemini-2.5-flash")

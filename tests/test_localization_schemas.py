@@ -5,7 +5,12 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.api.routes import localization as localization_routes
-from app.schemas.localization import RubricCaseCreate, RubricCaseUpdate, validate_rubric_payload
+from app.schemas.localization import (
+    RubricCaseCreate,
+    RubricCaseUpdate,
+    RubricGenerateRequest,
+    validate_rubric_payload,
+)
 from app.schemas.rubric_contract import RubricContract, RubricWeightPolicy
 
 
@@ -181,6 +186,131 @@ class LocalizationSchemaTest(unittest.TestCase):
             validate_rubric_payload(
                 [rubric(dimension="Natural Language Fluency", weight=1.5)],
                 contract=contract,
+            )
+
+    def test_generate_request_accepts_legacy_response_raw_without_candidate_selection(self) -> None:
+        request = RubricGenerateRequest(
+            locale="pt-BR",
+            category="Writing",
+            prompt="Synthetic prompt.",
+            response_raw="Legacy response.",
+            golden_response="Synthetic golden.",
+            base_template=[{"slot": "synthetic"}],
+            provider="fake",
+            model="fake-model",
+        )
+
+        self.assertEqual(request.response_raw, "Legacy response.")
+        self.assertIsNone(request.selected_candidate_id)
+
+    def test_generate_request_resolves_selected_candidate_response_raw(self) -> None:
+        request = RubricGenerateRequest(
+            locale="pt-BR",
+            category="Writing",
+            prompt="Synthetic prompt.",
+            response_raw="Stale legacy response.",
+            golden_response="Synthetic golden.",
+            base_template=[{"slot": "synthetic"}],
+            candidate_responses=[
+                {"id": "A", "response_raw": "Candidate A response."},
+                {"id": "B", "label": "Better B", "response_raw": "Candidate B response."},
+            ],
+            selected_candidate_id="B",
+            provider="fake",
+            model="fake-model",
+        )
+
+        self.assertEqual(request.response_raw, "Candidate B response.")
+        self.assertEqual(request.metadata["selected_candidate_id"], "B")
+        self.assertTrue(
+            request.metadata["response_raw_resolution"]["input_response_raw_overridden"]
+        )
+
+    def test_generate_request_accepts_four_candidate_responses(self) -> None:
+        request = RubricGenerateRequest(
+            locale="pt-BR",
+            category="Writing",
+            prompt="Synthetic prompt.",
+            response_raw=None,
+            golden_response="Synthetic golden.",
+            base_template=[{"slot": "synthetic"}],
+            candidate_responses=[
+                {"id": "A", "response_raw": "A response."},
+                {"id": "B", "response_raw": "B response."},
+                {"id": "C", "response_raw": "C response."},
+                {"id": "D", "response_raw": "D response."},
+            ],
+            selected_candidate_id="D",
+            provider="fake",
+            model="fake-model",
+        )
+
+        self.assertEqual(request.response_raw, "D response.")
+        self.assertEqual(len(request.metadata["candidate_responses"]), 4)
+
+    def test_generate_request_rejects_five_candidate_responses(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "more than 4"):
+            RubricGenerateRequest(
+                locale="pt-BR",
+                category="Writing",
+                prompt="Synthetic prompt.",
+                response_raw=None,
+                golden_response="Synthetic golden.",
+                base_template=[{"slot": "synthetic"}],
+                candidate_responses=[
+                    {"id": "A", "response_raw": "A response."},
+                    {"id": "B", "response_raw": "B response."},
+                    {"id": "C", "response_raw": "C response."},
+                    {"id": "D", "response_raw": "D response."},
+                    {"id": "A", "response_raw": "Duplicate overflow."},
+                ],
+                selected_candidate_id="A",
+                provider="fake",
+                model="fake-model",
+            )
+
+    def test_generate_request_rejects_missing_selected_candidate_id(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "selected_candidate_id is required"):
+            RubricGenerateRequest(
+                locale="pt-BR",
+                category="Writing",
+                prompt="Synthetic prompt.",
+                response_raw=None,
+                golden_response="Synthetic golden.",
+                base_template=[{"slot": "synthetic"}],
+                candidate_responses=[{"id": "A", "response_raw": "A response."}],
+                provider="fake",
+                model="fake-model",
+            )
+
+    def test_generate_request_rejects_missing_selected_candidate_match(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "does not match"):
+            RubricGenerateRequest(
+                locale="pt-BR",
+                category="Writing",
+                prompt="Synthetic prompt.",
+                response_raw=None,
+                golden_response="Synthetic golden.",
+                base_template=[{"slot": "synthetic"}],
+                candidate_responses=[{"id": "A", "response_raw": "A response."}],
+                selected_candidate_id="B",
+                provider="fake",
+                model="fake-model",
+            )
+
+    def test_generate_request_rejects_empty_selected_candidate_response(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "cannot be empty"):
+            RubricGenerateRequest(
+                locale="pt-BR",
+                category="Writing",
+                prompt="Synthetic prompt.",
+                response_raw=None,
+                golden_response="Synthetic golden.",
+                base_template=[{"slot": "synthetic"}],
+                candidate_responses=[{"id": "A", "response_raw": "   "}],
+                selected_candidate_id="A",
+                provider="fake",
+                model="fake-model",
             )
 
 

@@ -35,6 +35,7 @@ class FakeProviderAPI(BaseProvider):
         self.models = models or ["fake-model", "fake-default"]
         self.default_model_name = default_model_name
         self.response_text = response_text
+        self.last_prompt = None
 
     def list_models(self) -> list[dict]:
         return [{"name": model} for model in self.models]
@@ -44,6 +45,7 @@ class FakeProviderAPI(BaseProvider):
 
     def generate(self, *, prompt: ProviderPrompt | str, model: str | None = None) -> ProviderResult:
         self.calls += 1
+        self.last_prompt = prompt
         if self.fail:
             raise ProviderError("Synthetic provider failure.")
         
@@ -418,6 +420,75 @@ class LocalizationApiTest(unittest.TestCase):
         self.assertEqual(data["metadata"]["provider_used"], "fake")
         self.assertEqual(data["metadata"]["model_used"], "fake-model")
         self.assertIsNotNone(data.get("rubrics"))
+
+    def test_legacy_response_raw_still_generates(self):
+        response = self.client.post(
+            "/api/localization/rubrics/generate",
+            json=self._ready_payload(model="fake-model"),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["metadata"]["candidate_count"], 0)
+        self.assertEqual(
+            data["metadata"]["response_raw_resolution"]["mode"],
+            "legacy_response_raw",
+        )
+
+    def test_candidate_response_payload_generates_with_selected_candidate_only(self):
+        response = self.client.post(
+            "/api/localization/rubrics/generate",
+            json=self._ready_payload(
+                response_raw="Stale legacy response.",
+                candidate_responses=[
+                    {"id": "A", "label": "Candidate A", "response_raw": "Unselected A response."},
+                    {"id": "B", "label": "Candidate B", "response_raw": "Selected B response."},
+                ],
+                selected_candidate_id="B",
+                model="fake-model",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["metadata"]["selected_candidate_id"], "B")
+        self.assertEqual(data["metadata"]["selected_candidate_label"], "Candidate B")
+        self.assertEqual(data["metadata"]["candidate_count"], 2)
+        prompt_text = self.fake_provider.last_prompt.as_text()
+        self.assertIn('"response_raw": "Selected B response."', prompt_text)
+        self.assertNotIn("Unselected A response.", prompt_text)
+        self.assertNotIn("Stale legacy response.", prompt_text)
+
+    def test_candidate_response_missing_selection_is_rejected(self):
+        response = self.client.post(
+            "/api/localization/rubrics/generate",
+            json=self._ready_payload(
+                candidate_responses=[
+                    {"id": "A", "response_raw": "Candidate A response."},
+                ],
+                model="fake-model",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(self.fake_provider.calls, 0)
+
+    def test_candidate_response_unknown_selection_is_rejected(self):
+        response = self.client.post(
+            "/api/localization/rubrics/generate",
+            json=self._ready_payload(
+                candidate_responses=[
+                    {"id": "A", "response_raw": "Candidate A response."},
+                ],
+                selected_candidate_id="B",
+                model="fake-model",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(self.fake_provider.calls, 0)
 
     def test_api_routes_requested_ollama_provider_and_model(self):
         ollama_provider = FakeProviderAPI(
