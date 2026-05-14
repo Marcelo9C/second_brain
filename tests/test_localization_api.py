@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 from app.main import app
 from app.dependencies import get_rubric_generation_service
 from app.schemas.rubric_contract import RubricContract, RubricWeightPolicy
+from app.services.candidate_recommendation_service import CandidateRecommendationService
 from app.services.rubric_generation_service import RubricGenerationService
 from app.services.providers.base_provider import BaseProvider, ProviderError, ProviderPrompt, ProviderResult
 
@@ -489,6 +490,72 @@ class LocalizationApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
         self.assertEqual(self.fake_provider.calls, 0)
+
+    def test_recommend_golden_endpoint_returns_valid_recommendation(self):
+        self.fake_provider.response_text = json.dumps(
+            {
+                "recommended_candidate_id": "B",
+                "reason": "Candidate B is clearer.",
+                "warnings": [],
+            }
+        )
+        service = CandidateRecommendationService(
+            providers={"fake": self.fake_provider},
+            default_provider="fake",
+        )
+
+        with patch("app.api.routes.localization.get_candidate_recommendation_service", return_value=service):
+            response = self.client.post(
+                "/api/localization/candidate-responses/recommend-golden",
+                json={
+                    "locale": "pt-BR",
+                    "category": "Writing",
+                    "prompt": "Synthetic prompt.",
+                    "candidate_responses": [
+                        {"id": "A", "label": "Candidate A", "response_raw": "A response."},
+                        {"id": "B", "label": "Candidate B", "response_raw": "B response."},
+                    ],
+                    "provider": "fake",
+                    "model": "fake-model",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["recommended_candidate_id"], "B")
+        self.assertEqual(data["recommended_candidate_label"], "Candidate B")
+        self.assertNotIn("rubrics", data)
+        self.assertEqual(data["metadata"]["provider_requested"], "fake")
+        self.assertEqual(data["metadata"]["model_requested"], "fake-model")
+        self.assertEqual(data["metadata"]["provider_used"], "fake")
+        self.assertEqual(data["metadata"]["model_used"], "fake-model")
+        self.assertEqual(data["metadata"]["candidate_count"], 2)
+
+    def test_recommend_golden_endpoint_provider_failure_returns_success_false(self):
+        self.fake_provider.fail = True
+        service = CandidateRecommendationService(
+            providers={"fake": self.fake_provider},
+            default_provider="fake",
+        )
+
+        with patch("app.api.routes.localization.get_candidate_recommendation_service", return_value=service):
+            response = self.client.post(
+                "/api/localization/candidate-responses/recommend-golden",
+                json={
+                    "locale": "pt-BR",
+                    "category": "Writing",
+                    "prompt": "Synthetic prompt.",
+                    "candidate_responses": [{"id": "A", "response_raw": "A response."}],
+                    "provider": "fake",
+                    "model": "fake-model",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["success"])
+        self.assertEqual(data["metadata"]["generation_failure_type"], "provider_failed")
 
     def test_api_routes_requested_ollama_provider_and_model(self):
         ollama_provider = FakeProviderAPI(

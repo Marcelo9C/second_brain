@@ -188,6 +188,7 @@ class RubricGenerationServiceTest(unittest.TestCase):
         )
         prompt_text = provider.last_prompt.as_text()
         self.assertIn('"response_raw": "Selected B response."', prompt_text)
+        self.assertNotIn("candidate_responses", prompt_text)
         self.assertNotIn("Unselected A response.", prompt_text)
         self.assertNotIn("Stale legacy response.", prompt_text)
 

@@ -158,6 +158,7 @@
               </div>
 
               <div id="candidate-selection-warning" class="candidate-selection-warning" hidden></div>
+              <div id="candidate-recommendation-summary" class="candidate-recommendation-summary" hidden></div>
 
               <div class="candidate-slots" aria-label="Respostas candidatas">
                 <article class="candidate-slot" data-candidate-id="A">
@@ -165,6 +166,9 @@
                     <input type="radio" name="selected-candidate" value="A" />
                     <span>A</span>
                   </label>
+                  <div class="candidate-slot__ai-badge" hidden>
+                    <span class="candidate-slot__ai-label">IA recomendou</span>
+                  </div>
                   <textarea id="candidate-response-A" rows="4" placeholder="Candidate A response_raw"></textarea>
                 </article>
                 <article class="candidate-slot" data-candidate-id="B">
@@ -172,6 +176,9 @@
                     <input type="radio" name="selected-candidate" value="B" />
                     <span>B</span>
                   </label>
+                  <div class="candidate-slot__ai-badge" hidden>
+                    <span class="candidate-slot__ai-label">IA recomendou</span>
+                  </div>
                   <textarea id="candidate-response-B" rows="4" placeholder="Candidate B response_raw"></textarea>
                 </article>
                 <article class="candidate-slot" data-candidate-id="C">
@@ -179,6 +186,9 @@
                     <input type="radio" name="selected-candidate" value="C" />
                     <span>C</span>
                   </label>
+                  <div class="candidate-slot__ai-badge" hidden>
+                    <span class="candidate-slot__ai-label">IA recomendou</span>
+                  </div>
                   <textarea id="candidate-response-C" rows="4" placeholder="Candidate C response_raw"></textarea>
                 </article>
                 <article class="candidate-slot" data-candidate-id="D">
@@ -186,6 +196,9 @@
                     <input type="radio" name="selected-candidate" value="D" />
                     <span>D</span>
                   </label>
+                  <div class="candidate-slot__ai-badge" hidden>
+                    <span class="candidate-slot__ai-label">IA recomendou</span>
+                  </div>
                   <textarea id="candidate-response-D" rows="4" placeholder="Candidate D response_raw"></textarea>
                 </article>
               </div>
@@ -224,7 +237,7 @@
 
             <div class="editor-toolbar" aria-label="Acoes do editor de rubrics">
               <div class="toolbar-group primary-action">
-                <button id="generate-rubrics" class="primary-action-button" type="button">Gerar com IA</button>
+                <button id="generate-rubrics" class="primary-action-button" type="button">Gerar Rubrics com IA</button>
               </div>
               <div class="toolbar-group secondary-actions">
                 <button id="copy-json" class="ghost" type="button">Copiar JSON</button>

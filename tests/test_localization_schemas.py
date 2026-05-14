@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from app.api.routes import localization as localization_routes
 from app.schemas.localization import (
+    CandidateGoldenRecommendationRequest,
     RubricCaseCreate,
     RubricCaseUpdate,
     RubricGenerateRequest,
@@ -311,6 +312,85 @@ class LocalizationSchemaTest(unittest.TestCase):
                 selected_candidate_id="A",
                 provider="fake",
                 model="fake-model",
+            )
+
+    def test_recommendation_request_accepts_one_non_empty_candidate(self) -> None:
+        request = CandidateGoldenRecommendationRequest(
+            locale="pt-BR",
+            category="Writing",
+            prompt="Synthetic prompt.",
+            candidate_responses=[{"id": "A", "response_raw": "Candidate A response."}],
+            provider="fake",
+            model="fake-model",
+        )
+
+        self.assertEqual(len(request.candidate_responses), 1)
+        self.assertEqual(request.candidate_responses[0].id, "A")
+
+    def test_recommendation_request_accepts_four_candidates(self) -> None:
+        request = CandidateGoldenRecommendationRequest(
+            locale="pt-BR",
+            category="Writing",
+            prompt="Synthetic prompt.",
+            candidate_responses=[
+                {"id": "A", "response_raw": "A response."},
+                {"id": "B", "response_raw": "B response."},
+                {"id": "C", "response_raw": "C response."},
+                {"id": "D", "response_raw": "D response."},
+            ],
+            provider="fake",
+            model="fake-model",
+        )
+
+        self.assertEqual(len(request.candidate_responses), 4)
+
+    def test_recommendation_request_rejects_five_candidates(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "more than 4"):
+            CandidateGoldenRecommendationRequest(
+                locale="pt-BR",
+                category="Writing",
+                prompt="Synthetic prompt.",
+                candidate_responses=[
+                    {"id": "A", "response_raw": "A response."},
+                    {"id": "B", "response_raw": "B response."},
+                    {"id": "C", "response_raw": "C response."},
+                    {"id": "D", "response_raw": "D response."},
+                    {"id": "A", "response_raw": "Overflow."},
+                ],
+                provider="fake",
+                model="fake-model",
+            )
+
+    def test_recommendation_request_rejects_all_empty_candidates(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "at least one non-empty"):
+            CandidateGoldenRecommendationRequest(
+                locale="pt-BR",
+                category="Writing",
+                prompt="Synthetic prompt.",
+                candidate_responses=[{"id": "A", "response_raw": "   "}],
+                provider="fake",
+                model="fake-model",
+            )
+
+    def test_recommendation_request_rejects_missing_provider_or_model(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "provider is required"):
+            CandidateGoldenRecommendationRequest(
+                locale="pt-BR",
+                category="Writing",
+                prompt="Synthetic prompt.",
+                candidate_responses=[{"id": "A", "response_raw": "A response."}],
+                provider=" ",
+                model="fake-model",
+            )
+
+        with self.assertRaisesRegex(ValidationError, "model is required"):
+            CandidateGoldenRecommendationRequest(
+                locale="pt-BR",
+                category="Writing",
+                prompt="Synthetic prompt.",
+                candidate_responses=[{"id": "A", "response_raw": "A response."}],
+                provider="fake",
+                model=" ",
             )
 
 

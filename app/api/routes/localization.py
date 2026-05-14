@@ -3,11 +3,13 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app.dependencies import (
+    get_candidate_recommendation_service,
     get_localization_service,
     get_rubric_generation_service,
     get_rubric_validation_service,
 )
 from app.schemas.localization import (
+    CandidateGoldenRecommendationRequest,
     LocalizationCategory,
     RubricCaseCreate,
     RubricCaseExportRequest,
@@ -97,6 +99,16 @@ def generate_rubrics(payload: RubricGenerateRequest) -> dict[str, object]:
             verify_payload_contract=True,
         )
         return get_rubric_generation_service().generate(data, active_contract=contract)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except RubricGenerationError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@router.post("/candidate-responses/recommend-golden")
+def recommend_golden_candidate(payload: CandidateGoldenRecommendationRequest) -> dict[str, object]:
+    try:
+        return get_candidate_recommendation_service().recommend(payload.model_dump())
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except RubricGenerationError as error:

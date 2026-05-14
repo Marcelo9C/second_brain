@@ -35,6 +35,49 @@ class CandidateResponse(BaseModel):
     created_at: str | None = None
 
 
+class CandidateGoldenRecommendationRequest(BaseModel):
+    locale: str = "pt-BR"
+    category: LocalizationCategory
+    prompt: str | None = None
+    candidate_responses: list[CandidateResponse]
+    provider: str
+    model: str
+
+    @model_validator(mode="after")
+    def validate_recommendation_request(self) -> "CandidateGoldenRecommendationRequest":
+        provider = _clean_text(self.provider)
+        model = _clean_text(self.model)
+        if not provider:
+            raise ValueError("provider is required.")
+        if not model:
+            raise ValueError("model is required.")
+
+        candidates = _normalize_candidate_responses(
+            [candidate.model_dump(mode="json") for candidate in self.candidate_responses]
+        )
+        non_empty_candidates = [
+            CandidateResponse(**candidate)
+            for candidate in candidates
+            if _clean_text(candidate.get("response_raw"))
+        ]
+        if not non_empty_candidates:
+            raise ValueError("candidate_responses must contain at least one non-empty candidate.")
+
+        self.provider = provider
+        self.model = model
+        self.candidate_responses = non_empty_candidates
+        return self
+
+
+class CandidateGoldenRecommendationResponse(BaseModel):
+    success: bool
+    recommended_candidate_id: CandidateResponseId | None = None
+    recommended_candidate_label: str | None = None
+    reason: str = ""
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 def normalize_candidate_response_payload(
     payload: dict[str, Any],
     *,

@@ -31,6 +31,16 @@ const state = {
   lastValidationReport: null,
   backendValidationRequestId: 0,
   goldenSource: { mode: "manual", candidate_id: null },
+  goldenDraftFromRecommendation: false,
+  candidateRecommendation: {
+    status: "idle",
+    recommendedCandidateId: null,
+    recommendedCandidateLabel: null,
+    reason: "",
+    warnings: [],
+    metadata: null,
+    appliedToGolden: false,
+  },
 };
 
 const API_BASE =
@@ -58,6 +68,7 @@ const elements = {
   candidatePanel: document.querySelector("#candidate-response-panel"),
   candidateSelectionStatus: document.querySelector("#candidate-selection-status"),
   candidateSelectionWarning: document.querySelector("#candidate-selection-warning"),
+  candidateRecommendationSummary: document.querySelector("#candidate-recommendation-summary"),
   candidateInputs: Object.fromEntries(
     CANDIDATE_IDS.map((id) => [id, document.querySelector(`#candidate-response-${id}`)]),
   ),
@@ -215,6 +226,69 @@ function selectedCandidateText() {
   return candidateId ? candidateText(candidateId) : "";
 }
 
+function resetCandidateRecommendation(reason = "candidate_recommendation_reset") {
+  const previousRecommendation = state.candidateRecommendation || {};
+  if (
+    previousRecommendation.recommendedCandidateId &&
+    state.goldenSource?.mode === "from_recommended_candidate"
+  ) {
+    state.goldenSource = {
+      ...state.goldenSource,
+      recommendation_status: "stale_requires_reanalysis",
+      recommendation_stale_reason: reason,
+      finalized_by_human: false,
+    };
+  }
+  state.candidateRecommendation = {
+    status: "idle",
+    recommendedCandidateId: null,
+    recommendedCandidateLabel: null,
+    reason: "",
+    warnings: [],
+    metadata: null,
+    appliedToGolden: false,
+  };
+  state.goldenDraftFromRecommendation = false;
+}
+
+function goldenRecommendationMetadata() {
+  const recommendation = state.candidateRecommendation;
+  if (!recommendation?.recommendedCandidateId) {
+    return null;
+  }
+  const metadata = recommendation.metadata || {};
+  return {
+    recommended_candidate_id: recommendation.recommendedCandidateId,
+    recommended_candidate_label: recommendation.recommendedCandidateLabel,
+    recommendation_status: recommendation.appliedToGolden
+      ? "applied_to_golden_draft"
+      : recommendation.status,
+    reason: recommendation.reason,
+    provider_requested: metadata.provider_requested,
+    model_requested: metadata.model_requested,
+    provider_used: metadata.provider_used,
+    model_used: metadata.model_used,
+    candidate_count: metadata.candidate_count,
+  };
+}
+
+function recommendationAllowsRubricGeneration() {
+  if (responseMode() !== "candidates") {
+    return true;
+  }
+  const source = state.goldenSource || {};
+  return Boolean(
+    elements.goldenResponse.value.trim() &&
+      selectedCandidateId() &&
+      (
+        (state.candidateRecommendation.status === "ready" &&
+          state.candidateRecommendation.appliedToGolden &&
+          source.mode === "from_recommended_candidate") ||
+        source.mode === "from_selected_candidate"
+      ),
+  );
+}
+
 function candidateResponsesFromInputs() {
   return CANDIDATE_IDS
     .map((id) => ({
@@ -289,6 +363,9 @@ function candidateGenerationBlockReason() {
   if (!candidateResponses.some((candidate) => candidate.id === selectedId)) {
     return `Candidate ${selectedId} nao esta preenchida. Escolha uma candidata com texto antes de gerar rubrics.`;
   }
+  if (!recommendationAllowsRubricGeneration()) {
+    return "Analise candidatas com IA ou confirme uma candidata como base da Golden antes de gerar rubrics.";
+  }
   return null;
 }
 
@@ -335,8 +412,14 @@ function renderCandidateSelectorState() {
       elements.useSelectedAsGolden.disabled = true;
     }
     for (const slot of elements.candidateSlots) {
-      slot.classList.remove("selected", "stale");
+      slot.classList.remove("selected", "stale", "candidate-slot--recommended");
+      const badge = slot.querySelector(".candidate-slot__ai-badge");
+      if (badge) {
+        badge.hidden = true;
+      }
     }
+    elements.candidateRecommendationSummary.hidden = true;
+    elements.candidateRecommendationSummary.textContent = "";
     return;
   }
 
@@ -355,8 +438,14 @@ function renderCandidateSelectorState() {
   elements.candidateSelectionStatus.classList.remove("ok", "offline", "warning", "neutral");
   for (const slot of elements.candidateSlots) {
     const slotId = slot.dataset.candidateId;
+    const isRecommended = state.candidateRecommendation.recommendedCandidateId === slotId;
     slot.classList.toggle("selected", slotId === selectedId);
+    slot.classList.toggle("candidate-slot--recommended", isRecommended);
     slot.classList.toggle("stale", staleBySelection && slotId === selectedId);
+    const badge = slot.querySelector(".candidate-slot__ai-badge");
+    if (badge) {
+      badge.hidden = !isRecommended;
+    }
   }
 
   if (selectedId && selectedText && !staleBySelection && !staleMetadata) {
@@ -378,9 +467,37 @@ function renderCandidateSelectorState() {
 
   elements.candidateSelectionWarning.hidden = !warning;
   elements.candidateSelectionWarning.textContent = warning || "";
+  renderCandidateRecommendationSummary();
   if (elements.useSelectedAsGolden) {
     elements.useSelectedAsGolden.disabled = !(selectedId && selectedText);
   }
+}
+
+function renderCandidateRecommendationSummary() {
+  const recommendation = state.candidateRecommendation;
+  elements.candidateRecommendationSummary.classList.toggle("warning", recommendation.status === "failed");
+  if (recommendation.status === "running") {
+    elements.candidateRecommendationSummary.hidden = false;
+    elements.candidateRecommendationSummary.textContent = "Analisando candidatas...";
+    return;
+  }
+  if (recommendation.status === "failed") {
+    elements.candidateRecommendationSummary.hidden = false;
+    elements.candidateRecommendationSummary.textContent =
+      recommendation.warnings?.join(" ") || "A recomendacao falhou. Revise os detalhes e tente novamente.";
+    return;
+  }
+  if (recommendation.status === "ready") {
+    elements.candidateRecommendationSummary.hidden = false;
+    elements.candidateRecommendationSummary.textContent = [
+      `Candidata recomendada: ${recommendation.recommendedCandidateId}.`,
+      recommendation.reason ? `Justificativa: ${recommendation.reason}` : "",
+      "Golden Response criada como draft a partir da candidata recomendada. Revise/edite antes de gerar rubrics.",
+    ].filter(Boolean).join(" ");
+    return;
+  }
+  elements.candidateRecommendationSummary.hidden = true;
+  elements.candidateRecommendationSummary.textContent = "";
 }
 
 function markGenerationStale(reason = "case_changed_after_generation", extra = {}) {
@@ -1039,6 +1156,27 @@ function fillCase(record) {
   }
   elements.goldenResponse.value = record?.golden_response || "";
   state.goldenSource = record?.metadata?.golden_source || { mode: "manual", candidate_id: null };
+  const storedRecommendation = record?.metadata?.golden_recommendation || null;
+  state.candidateRecommendation = storedRecommendation?.recommended_candidate_id
+    ? {
+        status: "ready",
+        recommendedCandidateId: storedRecommendation.recommended_candidate_id,
+        recommendedCandidateLabel: storedRecommendation.recommended_candidate_label,
+        reason: storedRecommendation.reason || "",
+        warnings: [],
+        metadata: storedRecommendation,
+        appliedToGolden: state.goldenSource?.mode === "from_recommended_candidate",
+      }
+    : {
+        status: "idle",
+        recommendedCandidateId: null,
+        recommendedCandidateLabel: null,
+        reason: "",
+        warnings: [],
+        metadata: null,
+        appliedToGolden: false,
+      };
+  state.goldenDraftFromRecommendation = state.goldenSource?.mode === "from_recommended_candidate";
   elements.evaluatorNotes.value = record?.evaluator_notes || "";
   elements.tagsInput.value = Array.isArray(record?.tags) ? record.tags.join(", ") : "";
   state.lastGenerationMetadata = record?.metadata?.rubric_generation || null;
@@ -1066,6 +1204,7 @@ function resetCase() {
   elements.responseRaw.value = "";
   elements.goldenResponse.value = "";
   state.goldenSource = { mode: "manual", candidate_id: null };
+  resetCandidateRecommendation();
   elements.evaluatorNotes.value = "";
   elements.tagsInput.value = "";
   state.lastGenerationMetadata = null;
@@ -1147,6 +1286,7 @@ function buildPayload(statusOverride = null) {
       contract_mismatch: contractState.hasContractMismatch,
       human_quality_reviewed: state.humanQualityReviewed,
       golden_source: state.goldenSource || { mode: "manual", candidate_id: null },
+      golden_recommendation: goldenRecommendationMetadata(),
       validation_report: validation.report,
       rubric_generation: state.lastGenerationMetadata,
       raw_model_response: state.lastRawModelResponse,
@@ -1614,6 +1754,7 @@ async function generateRubrics() {
           selected_candidate_id: candidatePayload.selected_candidate_id,
           response_raw_resolution: candidatePayload.response_raw_resolution,
           golden_source: state.goldenSource || { mode: "manual", candidate_id: null },
+          golden_recommendation: goldenRecommendationMetadata(),
         },
       }),
     });
@@ -1661,7 +1802,106 @@ async function generateRubrics() {
     }
     elements.generateRubrics.classList.remove("generating");
     elements.generateRubrics.removeAttribute("aria-busy");
-    elements.generateRubrics.textContent = "Gerar com IA";
+    updateGenerateButtonState();
+  }
+}
+
+async function recommendGoldenCandidate() {
+  if (state.modelsLoading) {
+    throw new Error("Aguarde o carregamento dos modelos do provider selecionado.");
+  }
+  const candidateResponses = candidateResponsesFromInputs();
+  if (!candidateResponses.length) {
+    throw new Error("Carregue ao menos uma response_raw candidata antes de analisar.");
+  }
+  const providerRequested = elements.rubricProviderSelect.value;
+  const modelRequested = elements.rubricModelSelect.value;
+  if (!providerRequested || !modelRequested) {
+    throw new Error("Selecione provider e modelo antes de analisar candidatas.");
+  }
+
+  state.candidateRecommendation = {
+    status: "running",
+    recommendedCandidateId: null,
+    recommendedCandidateLabel: null,
+    reason: "",
+    warnings: [],
+    metadata: null,
+    appliedToGolden: false,
+  };
+  renderCandidateSelectorState();
+  updateGenerateButtonState();
+
+  elements.generateRubrics.disabled = true;
+  elements.generateRubrics.classList.add("generating");
+  elements.generateRubrics.setAttribute("aria-busy", "true");
+  elements.generateRubrics.textContent = "Analisando candidatas...";
+
+  try {
+    const result = await fetchJson("/api/localization/candidate-responses/recommend-golden", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        locale: elements.localeSelect.value,
+        category: elements.categorySelect.value,
+        prompt: elements.prompt.value.trim() || null,
+        candidate_responses: candidateResponses,
+        provider: providerRequested,
+        model: modelRequested,
+      }),
+    });
+
+    if (!result.success) {
+      state.candidateRecommendation = {
+        status: "failed",
+        recommendedCandidateId: null,
+        recommendedCandidateLabel: null,
+        reason: "",
+        warnings: result.warnings || ["A recomendacao falhou."],
+        metadata: result.metadata || null,
+        appliedToGolden: false,
+      };
+      throw new Error(state.candidateRecommendation.warnings.join(" "));
+    }
+
+    const recommendedId = result.recommended_candidate_id;
+    const recommendedText = candidateText(recommendedId);
+    if (!recommendedId || !recommendedText) {
+      throw new Error("A IA recomendou uma candidata vazia ou inexistente.");
+    }
+
+    setSelectedCandidate(recommendedId);
+    elements.responseRaw.value = recommendedText;
+    elements.goldenResponse.value = recommendedText;
+    state.candidateRecommendation = {
+      status: "ready",
+      recommendedCandidateId: recommendedId,
+      recommendedCandidateLabel: result.recommended_candidate_label || `Candidate ${recommendedId}`,
+      reason: result.reason || "",
+      warnings: result.warnings || [],
+      metadata: result.metadata || null,
+      appliedToGolden: true,
+    };
+    state.goldenDraftFromRecommendation = true;
+    state.goldenSource = {
+      mode: "from_recommended_candidate",
+      candidate_id: recommendedId,
+      human_applied: false,
+      human_editable: true,
+      human_edited: false,
+      finalized_by_human: false,
+      recommendation_status: "applied_to_golden_draft",
+    };
+    invalidateQualityReview();
+    invalidateGenerationMetadata("golden_response_created_from_candidate_recommendation", {
+      current_selected_candidate_id: recommendedId,
+    });
+    elements.aiWarning.textContent =
+      "Golden Response em draft. Revise/edite antes de gerar rubrics.";
+    renderCandidateSelectorState();
+  } finally {
+    elements.generateRubrics.classList.remove("generating");
+    elements.generateRubrics.removeAttribute("aria-busy");
     updateGenerateButtonState();
   }
 }
@@ -2328,15 +2568,37 @@ function formatQualitySignal(value) {
 }
 
 function updateGenerateButtonState() {
-  const blockReason = candidateGenerationBlockReason();
+  const isCandidateMode = responseMode() === "candidates";
+  const recommendationReady = recommendationAllowsRubricGeneration();
+  const shouldAnalyzeCandidates = isCandidateMode && !recommendationReady;
+  const blockReason = shouldAnalyzeCandidates ? null : candidateGenerationBlockReason();
   const missingPrompt = !elements.prompt.value.trim();
   const missingGolden = !elements.goldenResponse.value.trim();
   const missingTemplate = !state.currentTemplate;
-  const blocked = Boolean(state.modelsLoading || blockReason || missingPrompt || missingGolden || missingTemplate);
+  const missingProviderModel = !elements.rubricProviderSelect.value || !elements.rubricModelSelect.value;
+  const noCandidates = isCandidateMode && !candidateResponsesFromInputs().length;
+  const recommendationRunning = state.candidateRecommendation.status === "running";
+  const blocked = shouldAnalyzeCandidates
+    ? Boolean(state.modelsLoading || recommendationRunning || noCandidates || missingProviderModel)
+    : Boolean(state.modelsLoading || blockReason || missingPrompt || missingGolden || missingTemplate);
 
   elements.generateRubrics.disabled = blocked;
+  if (shouldAnalyzeCandidates) {
+    elements.generateRubrics.textContent = recommendationRunning
+      ? "Analisando candidatas..."
+      : "Analisar candidatas com IA";
+  } else {
+    elements.generateRubrics.textContent = "Gerar Rubrics com IA";
+  }
+
   if (state.modelsLoading) {
     elements.generateRubrics.title = "Aguarde o carregamento dos modelos.";
+  } else if (recommendationRunning) {
+    elements.generateRubrics.title = "Analise de candidatas em andamento.";
+  } else if (shouldAnalyzeCandidates && noCandidates) {
+    elements.generateRubrics.title = "Carregue ao menos uma response_raw candidata.";
+  } else if (shouldAnalyzeCandidates && missingProviderModel) {
+    elements.generateRubrics.title = "Selecione provider e modelo antes de analisar.";
   } else if (blockReason) {
     elements.generateRubrics.title = blockReason;
   } else if (missingPrompt) {
@@ -2410,6 +2672,7 @@ for (const radio of elements.responseModeRadios) {
       }
     }
     renderResponseMode();
+    resetCandidateRecommendation("response_mode_changed_after_recommendation");
     invalidateQualityReview();
     invalidateGenerationMetadata("response_mode_changed_after_generation", {
       response_mode: responseMode(),
@@ -2426,6 +2689,7 @@ elements.responseRaw.addEventListener("input", () => {
 });
 for (const radio of elements.candidateRadios) {
   radio.addEventListener("change", () => {
+    resetCandidateRecommendation("selected_candidate_changed_after_recommendation");
     syncEvaluatedResponse();
     invalidateQualityReview();
     invalidateGenerationMetadata("selected_candidate_changed_after_generation", {
@@ -2436,6 +2700,7 @@ for (const radio of elements.candidateRadios) {
 }
 for (const [candidateId, textarea] of Object.entries(elements.candidateInputs)) {
   textarea.addEventListener("input", () => {
+    resetCandidateRecommendation("candidate_response_changed_after_recommendation");
     syncEvaluatedResponse();
     invalidateQualityReview();
     invalidateGenerationMetadata("candidate_response_changed_after_generation", {
@@ -2452,14 +2717,40 @@ elements.useSelectedAsGolden.addEventListener("click", () => {
     return;
   }
   elements.goldenResponse.value = response;
-  state.goldenSource = { mode: "from_selected_candidate", candidate_id: candidateId };
+  state.goldenSource = {
+    mode: "from_selected_candidate",
+    candidate_id: candidateId,
+    human_applied: true,
+    human_editable: true,
+    human_edited: false,
+    finalized_by_human: false,
+  };
+  state.goldenDraftFromRecommendation = false;
   invalidateQualityReview();
   invalidateGenerationMetadata("golden_response_changed_after_generation", {
     current_selected_candidate_id: candidateId,
   });
 });
 elements.goldenResponse.addEventListener("input", () => {
-  state.goldenSource = { mode: "manual", candidate_id: null };
+  if (state.goldenSource?.mode === "from_recommended_candidate") {
+    state.goldenSource = {
+      ...state.goldenSource,
+      human_applied: true,
+      human_editable: true,
+      human_edited: true,
+      finalized_by_human: false,
+    };
+  } else if (state.goldenSource?.mode === "from_selected_candidate") {
+    state.goldenSource = {
+      ...state.goldenSource,
+      human_applied: true,
+      human_editable: true,
+      human_edited: true,
+      finalized_by_human: false,
+    };
+  } else {
+    state.goldenSource = { mode: "manual", candidate_id: null };
+  }
   invalidateQualityReview();
   invalidateGenerationMetadata();
 });
@@ -2481,6 +2772,7 @@ elements.localeSelect.addEventListener("change", () => {
 });
 
 elements.rubricProviderSelect.addEventListener("change", () => {
+  resetCandidateRecommendation("provider_changed_after_recommendation");
   invalidateGenerationMetadata();
   loadProviderModels().catch((error) => {
     elements.aiWarning.textContent = error.message;
@@ -2488,6 +2780,7 @@ elements.rubricProviderSelect.addEventListener("change", () => {
 });
 
 elements.rubricModelSelect.addEventListener("change", () => {
+  resetCandidateRecommendation("model_changed_after_recommendation");
   invalidateGenerationMetadata();
 });
 
@@ -2498,8 +2791,13 @@ elements.saveCase.addEventListener("click", () => {
 });
 
 elements.generateRubrics.addEventListener("click", () => {
-  generateRubrics().catch((error) => {
+  const action = responseMode() === "candidates" && !recommendationAllowsRubricGeneration()
+    ? recommendGoldenCandidate
+    : generateRubrics;
+  action().catch((error) => {
     elements.aiWarning.textContent = error.message;
+    renderCandidateSelectorState();
+    updateGenerateButtonState();
   });
 });
 
