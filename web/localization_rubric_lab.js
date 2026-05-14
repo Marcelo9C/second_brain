@@ -97,7 +97,6 @@ const elements = {
   generateRubrics: document.querySelector("#generate-rubrics"),
   copyJson: document.querySelector("#copy-json"),
   aiWarning: document.querySelector("#ai-warning"),
-  nextStep: document.querySelector("#next-step"),
   generationSummary: document.querySelector("#generation-summary"),
   generationDiagnostics: document.querySelector("#generation-diagnostics"),
   generationDiagnosticsDetails: document.querySelector("#generation-diagnostics-details"),
@@ -292,7 +291,7 @@ function recommendationAllowsRubricGeneration() {
 }
 
 function candidateRubricsContainmentMessage() {
-  return "Escolha uma candidata e prepare a Golden Response.";
+  return "Rubrics ainda não disponíveis. Primeiro analise/selecione uma candidata e prepare a Golden Response.";
 }
 
 function candidateRubricsBlocked() {
@@ -491,25 +490,54 @@ function renderCandidateSelectorState() {
 
 function renderCandidateRecommendationSummary() {
   const recommendation = state.candidateRecommendation;
-  elements.candidateRecommendationSummary.classList.toggle("warning", recommendation.status === "failed");
+  elements.candidateRecommendationSummary.classList.remove("ready", "running", "warning");
+  elements.candidateRecommendationSummary.replaceChildren();
   if (recommendation.status === "running") {
     elements.candidateRecommendationSummary.hidden = false;
-    elements.candidateRecommendationSummary.textContent = "Analisando candidatas...";
+    elements.candidateRecommendationSummary.classList.add("running");
+    const title = document.createElement("strong");
+    title.textContent = "Analisando candidatas";
+    const message = document.createElement("span");
+    message.textContent = "O modelo esta escolhendo a melhor base para a Golden Response.";
+    elements.candidateRecommendationSummary.append(title, message);
     return;
   }
   if (recommendation.status === "failed") {
     elements.candidateRecommendationSummary.hidden = false;
-    elements.candidateRecommendationSummary.textContent =
+    elements.candidateRecommendationSummary.classList.add("warning");
+    const title = document.createElement("strong");
+    title.textContent = "Escolha automatica falhou";
+    const message = document.createElement("span");
+    message.textContent =
+      recommendation.warnings?.[0] ||
       "A IA nao retornou uma candidata valida. Tente novamente ou selecione uma candidata manualmente.";
+    elements.candidateRecommendationSummary.append(title, message);
+
+    const trace = recommendation.metadata?.recommendation_trace;
+    const validationError = trace?.validation_error || recommendation.metadata?.generation_failure_type;
+    if (validationError) {
+      const detail = document.createElement("span");
+      detail.className = "candidate-recommendation-summary__detail";
+      detail.textContent = `Diagnostico: ${validationError}`;
+      elements.candidateRecommendationSummary.append(detail);
+    }
     return;
   }
   if (recommendation.status === "ready") {
     elements.candidateRecommendationSummary.hidden = false;
-    elements.candidateRecommendationSummary.textContent = [
-      `Candidata recomendada: ${recommendation.recommendedCandidateId}.`,
-      recommendation.reason ? `Justificativa: ${recommendation.reason}` : "",
-      "Golden Response criada como draft a partir da candidata recomendada. Revise/edite antes de gerar rubrics.",
-    ].filter(Boolean).join(" ");
+    elements.candidateRecommendationSummary.classList.add("ready");
+    const title = document.createElement("strong");
+    title.textContent = `Candidata recomendada: ${recommendation.recommendedCandidateId}`;
+    const message = document.createElement("span");
+    message.textContent =
+      "Golden Response criada como draft editavel a partir da candidata recomendada.";
+    elements.candidateRecommendationSummary.append(title, message);
+    if (recommendation.reason) {
+      const reason = document.createElement("span");
+      reason.className = "candidate-recommendation-summary__detail";
+      reason.textContent = `Justificativa: ${recommendation.reason}`;
+      elements.candidateRecommendationSummary.append(reason);
+    }
     return;
   }
   elements.candidateRecommendationSummary.hidden = true;
@@ -949,7 +977,6 @@ function generationPresentation(
       severity: "neutral",
       kind: "neutral",
       reason: null,
-      nextStep: "Preencha o caso e gere rubrics, ou escreva/copie rubrics manualmente.",
       showTechnicalDetails: false,
       showRawResponse: false,
       showRubricCards: rubricsApplied,
@@ -966,7 +993,6 @@ function generationPresentation(
       severity: "warning",
       kind: "warning",
       reason: null,
-      nextStep: "Gere novamente para obter uma auditoria válida para a seleção atual.",
       showTechnicalDetails: false,
       showRawResponse: false,
       showRubricCards: rubricsApplied,
@@ -983,7 +1009,6 @@ function generationPresentation(
       severity: "error",
       kind: "offline",
       reason: metadata.raw_error || metadata.validation_error || null,
-      nextStep: "Verifique provider/modelo, conexão e configuração antes de gerar novamente.",
       showTechnicalDetails: true,
       showRawResponse: false,
       showRubricCards: false,
@@ -999,7 +1024,6 @@ function generationPresentation(
       severity: "error",
       kind: "offline",
       reason: metadata.validation_error || null,
-      nextStep: "Revise a resposta bruta para auditoria e gere novamente ou tente outro modelo.",
       showTechnicalDetails: true,
       showRawResponse: true,
       showRubricCards: false,
@@ -1014,7 +1038,6 @@ function generationPresentation(
       severity: "error",
       kind: "offline",
       reason: metadata.blocked_reason || null,
-      nextStep: "Selecione provider/modelo novamente e gere outra vez.",
       showTechnicalDetails: true,
       showRawResponse: false,
       showRubricCards: false,
@@ -1034,7 +1057,6 @@ function generationPresentation(
       severity: "warning",
       kind: "warning",
       reason: null,
-      nextStep: "Revise os alertas de qualidade antes de marcar como reviewed.",
       showTechnicalDetails: true,
       showRawResponse: true,
       showRubricCards: true,
@@ -1054,7 +1076,6 @@ function generationPresentation(
       severity: "ok",
       kind: "ok",
       reason: null,
-      nextStep: "Faça a revisão humana e marque como reviewed quando estiver pronto.",
       showTechnicalDetails: true,
       showRawResponse: true,
       showRubricCards: true,
@@ -1070,7 +1091,6 @@ function generationPresentation(
       severity: "ok",
       kind: "ok",
       reason: null,
-      nextStep: "Revise as rubrics antes de marcar como reviewed.",
       showTechnicalDetails: true,
       showRawResponse: true,
       showRubricCards: rubricsApplied,
@@ -1086,7 +1106,6 @@ function generationPresentation(
       severity: "error",
       kind: "offline",
       reason: metadata.raw_error || metadata.validation_error || metadata.blocked_reason,
-      nextStep: "Revise os detalhes técnicos e gere novamente.",
       showTechnicalDetails: true,
       showRawResponse: Boolean(state.lastRawModelResponse),
       showRubricCards: false,
@@ -1101,7 +1120,6 @@ function generationPresentation(
     severity: "neutral",
     kind: "neutral",
     reason: null,
-    nextStep: "Preencha o caso e gere rubrics, ou escreva/copie rubrics manualmente.",
     showTechnicalDetails: false,
     showRawResponse: false,
     showRubricCards: rubricsApplied,
@@ -1899,12 +1917,15 @@ async function recommendGoldenCandidate() {
 
     if (!result.success) {
       const technicalWarnings = result.warnings || [];
+      const humanWarnings = technicalWarnings.length
+        ? technicalWarnings
+        : ["A IA nao retornou uma candidata valida. Tente novamente ou selecione uma candidata manualmente."];
       state.candidateRecommendation = {
         status: "failed",
         recommendedCandidateId: null,
         recommendedCandidateLabel: null,
         reason: "",
-        warnings: ["A IA nao retornou uma candidata valida. Tente novamente ou selecione uma candidata manualmente."],
+        warnings: humanWarnings,
         metadata: {
           ...(result.metadata || {}),
           technical_warnings: technicalWarnings,
@@ -2305,11 +2326,6 @@ function requestBackendQualityHeuristics(result) {
         qualityHeuristics: report.qualityHeuristics,
       };
       renderGenerationDiagnostics(state.lastGenerationMetadata);
-      elements.nextStep.textContent = generationPresentation(
-        state,
-        state.lastGenerationMetadata,
-        state.lastValidationReport,
-      ).nextStep;
       renderQualityHeuristics(report.qualityHeuristics);
     })
     .catch(() => {
@@ -2460,8 +2476,6 @@ function renderEditorState(result) {
   }
 
   setStateSummary(elements.editorStateSummary, kind, title, message);
-  elements.nextStep.hidden = candidateRubricsBlocked();
-  elements.nextStep.textContent = getRecommendedNextStep(result, state.lastGenerationMetadata);
 }
 
 function renderContractMismatchWarning(contractState = editorContractState()) {
@@ -2473,46 +2487,6 @@ function renderContractMismatchWarning(contractState = editorContractState()) {
   elements.contractMismatchWarning.textContent = contractState.hasContractMismatch
     ? contractState.message
     : "";
-}
-
-function getRecommendedNextStep(result, generationMetadata) {
-  const report = result.report;
-  const contractState = editorContractState();
-  if (contractState.hasContractMismatch) {
-    return "Contrato divergente: gere novamente para a selecao atual ou limpe o editor antes de revisar/aprovar.";
-  }
-  if (candidateRubricsBlocked()) {
-    return candidateRubricsContainmentMessage();
-  }
-  const presentation = generationPresentation(state, generationMetadata, state.lastValidationReport);
-  if (
-    generationMetadata ||
-    presentation.state === "no_generation_yet" && report.structureValidation.status === "empty"
-  ) {
-    return presentation.nextStep;
-  }
-  if (generationMetadata?.generation_state === "stale" || generationMetadata?.validation_status === "stale") {
-    return "O caso mudou depois da ultima geracao. Gere novamente ou revise manualmente antes de avancar.";
-  }
-  if (result.rubrics === null) {
-    return "Corrija o JSON ou copie o texto bruto para revisar fora do editor.";
-  }
-  if (report.structureValidation.status === "empty") {
-    return "Preencha o caso e gere rubrics, ou escreva/copie rubrics manualmente.";
-  }
-  if (report.formatValidation.status === "fail") {
-    return "Corrija dimensoes, pesos, campos obrigatorios e tipos antes de revisar qualidade.";
-  }
-  if (generationMetadata?.validation_status === "failed") {
-    return "A geracao rodou, mas o resultado falhou na validacao. Corrija as rubrics ou gere novamente.";
-  }
-  if (report.qualityValidation.status !== "pass") {
-    return "Revise atomicidade, cobertura, pesos e relevancia antes de marcar reviewed.";
-  }
-  if (report.approvalReadiness.status !== "pass") {
-    return "Complete os campos do caso e confirme a prontidao antes de aprovar.";
-  }
-  return "Caso pronto para aprovacao ou exportacao conforme o fluxo.";
 }
 
 function renderValidationLayers(report) {
@@ -2645,16 +2619,12 @@ function updateGenerateButtonState() {
   );
 
   if (elements.editorToolbar) {
-    elements.editorToolbar.hidden = false;
+    elements.editorToolbar.hidden = rubricsBlockedForCandidates;
   }
   elements.generateRubrics.disabled = blocked;
   elements.generateRubrics.classList.toggle("candidate-blocked", rubricsBlockedForCandidates);
   elements.generateRubrics.classList.toggle("candidate-ready", isCandidateMode && !blocked);
-  elements.generateRubrics.textContent = rubricsBlockedForCandidates
-    ? candidateRubricsContainmentMessage()
-    : isCandidateMode
-      ? "Gerar Rubrics"
-      : "Gerar Rubrics com IA";
+  elements.generateRubrics.textContent = "Gerar Rubrics com IA";
 
   if (state.modelsLoading) {
     elements.generateRubrics.title = "Aguarde o carregamento dos modelos.";

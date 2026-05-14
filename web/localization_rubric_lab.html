@@ -169,7 +169,7 @@
                   <div class="candidate-slot__ai-badge" hidden>
                     <span class="candidate-slot__ai-label">IA recomendou</span>
                   </div>
-                  <textarea id="candidate-response-A" rows="4" placeholder="Candidate A response_raw"></textarea>
+                  <textarea id="candidate-response-A" rows="4" placeholder="Cole aqui a resposta candidata A"></textarea>
                 </article>
                 <article class="candidate-slot" data-candidate-id="B">
                   <label class="candidate-slot-choice">
@@ -179,7 +179,7 @@
                   <div class="candidate-slot__ai-badge" hidden>
                     <span class="candidate-slot__ai-label">IA recomendou</span>
                   </div>
-                  <textarea id="candidate-response-B" rows="4" placeholder="Candidate B response_raw"></textarea>
+                  <textarea id="candidate-response-B" rows="4" placeholder="Cole aqui a resposta candidata B"></textarea>
                 </article>
                 <article class="candidate-slot" data-candidate-id="C">
                   <label class="candidate-slot-choice">
@@ -189,7 +189,7 @@
                   <div class="candidate-slot__ai-badge" hidden>
                     <span class="candidate-slot__ai-label">IA recomendou</span>
                   </div>
-                  <textarea id="candidate-response-C" rows="4" placeholder="Candidate C response_raw"></textarea>
+                  <textarea id="candidate-response-C" rows="4" placeholder="Cole aqui a resposta candidata C"></textarea>
                 </article>
                 <article class="candidate-slot" data-candidate-id="D">
                   <label class="candidate-slot-choice">
@@ -199,11 +199,12 @@
                   <div class="candidate-slot__ai-badge" hidden>
                     <span class="candidate-slot__ai-label">IA recomendou</span>
                   </div>
-                  <textarea id="candidate-response-D" rows="4" placeholder="Candidate D response_raw"></textarea>
+                  <textarea id="candidate-response-D" rows="4" placeholder="Cole aqui a resposta candidata D"></textarea>
                 </article>
               </div>
 
-              <div class="candidate-preview">
+              <div class="candidate-preview" aria-label="Acoes de selecao da Golden">
+                <button id="analyze-candidates" class="primary-action-button" type="button">Analisar candidatas com IA</button>
                 <button id="use-selected-as-golden" class="ghost" type="button">Usar selecionada como base da Golden</button>
               </div>
             </section>
@@ -235,7 +236,7 @@
             </div>
             <div id="contract-mismatch-warning" class="contract-mismatch-warning" hidden></div>
 
-            <div class="editor-toolbar" aria-label="Acoes do editor de rubrics">
+            <div id="editor-toolbar" class="editor-toolbar" aria-label="Acoes do editor de rubrics">
               <div class="toolbar-group primary-action">
                 <button id="generate-rubrics" class="primary-action-button" type="button">Gerar Rubrics com IA</button>
               </div>
@@ -247,10 +248,6 @@
                 <button id="mark-reviewed" class="ghost workflow-button" type="button">Marcar reviewed</button>
                 <button id="mark-approved" class="ghost workflow-button" type="button">Aprovar</button>
               </div>
-            </div>
-
-            <div id="next-step" class="next-step">
-              Preencha o caso e gere rubrics, ou escreva/copie rubrics manualmente.
             </div>
 
             <section id="failed-generation-panel" class="failed-generation-panel" hidden>
