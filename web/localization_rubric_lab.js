@@ -74,6 +74,7 @@ const elements = {
   ),
   candidateRadios: Array.from(document.querySelectorAll('input[name="selected-candidate"]')),
   candidateSlots: Array.from(document.querySelectorAll(".candidate-slot")),
+  analyzeCandidates: document.querySelector("#analyze-candidates"),
   useSelectedAsGolden: document.querySelector("#use-selected-as-golden"),
   goldenResponse: document.querySelector("#golden-response"),
   evaluatorNotes: document.querySelector("#evaluator-notes"),
@@ -81,6 +82,7 @@ const elements = {
   rubricCards: document.querySelector("#rubric-cards"),
   jsonStatus: document.querySelector("#json-status"),
   editorStateSummary: document.querySelector("#editor-state-summary"),
+  editorToolbar: document.querySelector("#editor-toolbar"),
   contractMismatchWarning: document.querySelector("#contract-mismatch-warning"),
   validationOutput: document.querySelector("#validation-output"),
   validationLayers: document.querySelector("#validation-layers"),
@@ -289,6 +291,14 @@ function recommendationAllowsRubricGeneration() {
   );
 }
 
+function candidateRubricsContainmentMessage() {
+  return "Escolha uma candidata e prepare a Golden Response.";
+}
+
+function candidateRubricsBlocked() {
+  return responseMode() === "candidates" && !recommendationAllowsRubricGeneration();
+}
+
 function candidateResponsesFromInputs() {
   return CANDIDATE_IDS
     .map((id) => ({
@@ -411,6 +421,11 @@ function renderCandidateSelectorState() {
     if (elements.useSelectedAsGolden) {
       elements.useSelectedAsGolden.disabled = true;
     }
+    if (elements.analyzeCandidates) {
+      elements.analyzeCandidates.disabled = true;
+      elements.analyzeCandidates.textContent = "Analisar candidatas com IA";
+      elements.analyzeCandidates.removeAttribute("title");
+    }
     for (const slot of elements.candidateSlots) {
       slot.classList.remove("selected", "stale", "candidate-slot--recommended");
       const badge = slot.querySelector(".candidate-slot__ai-badge");
@@ -471,6 +486,7 @@ function renderCandidateSelectorState() {
   if (elements.useSelectedAsGolden) {
     elements.useSelectedAsGolden.disabled = !(selectedId && selectedText);
   }
+  updateAnalyzeCandidatesButtonState();
 }
 
 function renderCandidateRecommendationSummary() {
@@ -484,7 +500,7 @@ function renderCandidateRecommendationSummary() {
   if (recommendation.status === "failed") {
     elements.candidateRecommendationSummary.hidden = false;
     elements.candidateRecommendationSummary.textContent =
-      recommendation.warnings?.join(" ") || "A recomendacao falhou. Revise os detalhes e tente novamente.";
+      "A IA nao retornou uma candidata valida. Tente novamente ou selecione uma candidata manualmente.";
     return;
   }
   if (recommendation.status === "ready") {
@@ -498,6 +514,36 @@ function renderCandidateRecommendationSummary() {
   }
   elements.candidateRecommendationSummary.hidden = true;
   elements.candidateRecommendationSummary.textContent = "";
+}
+
+function updateAnalyzeCandidatesButtonState() {
+  if (!elements.analyzeCandidates) {
+    return;
+  }
+  const isCandidateMode = responseMode() === "candidates";
+  const candidateResponses = candidateResponsesFromInputs();
+  const missingProviderModel = !elements.rubricProviderSelect.value || !elements.rubricModelSelect.value;
+  const recommendationRunning = state.candidateRecommendation.status === "running";
+  const blocked = Boolean(!isCandidateMode || state.modelsLoading || recommendationRunning || !candidateResponses.length || missingProviderModel);
+
+  elements.analyzeCandidates.disabled = blocked;
+  elements.analyzeCandidates.textContent = recommendationRunning
+    ? "Analisando candidatas..."
+    : "Analisar candidatas com IA";
+
+  if (!isCandidateMode) {
+    elements.analyzeCandidates.title = "Disponivel apenas no modo 4 response_raw candidatas.";
+  } else if (state.modelsLoading) {
+    elements.analyzeCandidates.title = "Aguarde o carregamento dos modelos.";
+  } else if (recommendationRunning) {
+    elements.analyzeCandidates.title = "Analise de candidatas em andamento.";
+  } else if (!candidateResponses.length) {
+    elements.analyzeCandidates.title = "Carregue ao menos uma response_raw candidata.";
+  } else if (missingProviderModel) {
+    elements.analyzeCandidates.title = "Selecione provider e modelo antes de analisar.";
+  } else {
+    elements.analyzeCandidates.removeAttribute("title");
+  }
 }
 
 function markGenerationStale(reason = "case_changed_after_generation", extra = {}) {
@@ -1832,10 +1878,10 @@ async function recommendGoldenCandidate() {
   renderCandidateSelectorState();
   updateGenerateButtonState();
 
-  elements.generateRubrics.disabled = true;
-  elements.generateRubrics.classList.add("generating");
-  elements.generateRubrics.setAttribute("aria-busy", "true");
-  elements.generateRubrics.textContent = "Analisando candidatas...";
+  elements.analyzeCandidates.disabled = true;
+  elements.analyzeCandidates.classList.add("generating");
+  elements.analyzeCandidates.setAttribute("aria-busy", "true");
+  elements.analyzeCandidates.textContent = "Analisando candidatas...";
 
   try {
     const result = await fetchJson("/api/localization/candidate-responses/recommend-golden", {
@@ -1852,16 +1898,23 @@ async function recommendGoldenCandidate() {
     });
 
     if (!result.success) {
+      const technicalWarnings = result.warnings || [];
       state.candidateRecommendation = {
         status: "failed",
         recommendedCandidateId: null,
         recommendedCandidateLabel: null,
         reason: "",
-        warnings: result.warnings || ["A recomendacao falhou."],
-        metadata: result.metadata || null,
+        warnings: ["A IA nao retornou uma candidata valida. Tente novamente ou selecione uma candidata manualmente."],
+        metadata: {
+          ...(result.metadata || {}),
+          technical_warnings: technicalWarnings,
+        },
         appliedToGolden: false,
       };
-      throw new Error(state.candidateRecommendation.warnings.join(" "));
+      elements.aiWarning.textContent = state.candidateRecommendation.warnings[0];
+      renderCandidateSelectorState();
+      updateGenerateButtonState();
+      return;
     }
 
     const recommendedId = result.recommended_candidate_id;
@@ -1900,8 +1953,8 @@ async function recommendGoldenCandidate() {
       "Golden Response em draft. Revise/edite antes de gerar rubrics.";
     renderCandidateSelectorState();
   } finally {
-    elements.generateRubrics.classList.remove("generating");
-    elements.generateRubrics.removeAttribute("aria-busy");
+    elements.analyzeCandidates.classList.remove("generating");
+    elements.analyzeCandidates.removeAttribute("aria-busy");
     updateGenerateButtonState();
   }
 }
@@ -2189,7 +2242,9 @@ function layer(status, message, blocking = false, extra = {}) {
 function renderValidation() {
   syncEvaluatedResponse();
   const result = validateRubrics();
-  elements.validationOutput.textContent = result.message;
+  const rubricsBlocked = candidateRubricsBlocked();
+  elements.validationOutput.hidden = rubricsBlocked;
+  elements.validationOutput.textContent = rubricsBlocked ? "" : result.message;
   state.lastValidationReport = result.report;
   renderEditorState(result);
   renderRubricCards(result.rubrics);
@@ -2405,6 +2460,7 @@ function renderEditorState(result) {
   }
 
   setStateSummary(elements.editorStateSummary, kind, title, message);
+  elements.nextStep.hidden = candidateRubricsBlocked();
   elements.nextStep.textContent = getRecommendedNextStep(result, state.lastGenerationMetadata);
 }
 
@@ -2424,6 +2480,9 @@ function getRecommendedNextStep(result, generationMetadata) {
   const contractState = editorContractState();
   if (contractState.hasContractMismatch) {
     return "Contrato divergente: gere novamente para a selecao atual ou limpe o editor antes de revisar/aprovar.";
+  }
+  if (candidateRubricsBlocked()) {
+    return candidateRubricsContainmentMessage();
   }
   const presentation = generationPresentation(state, generationMetadata, state.lastValidationReport);
   if (
@@ -2569,36 +2628,40 @@ function formatQualitySignal(value) {
 
 function updateGenerateButtonState() {
   const isCandidateMode = responseMode() === "candidates";
-  const recommendationReady = recommendationAllowsRubricGeneration();
-  const shouldAnalyzeCandidates = isCandidateMode && !recommendationReady;
-  const blockReason = shouldAnalyzeCandidates ? null : candidateGenerationBlockReason();
+  const rubricsBlockedForCandidates = candidateRubricsBlocked();
+  const blockReason = candidateGenerationBlockReason();
   const missingPrompt = !elements.prompt.value.trim();
   const missingGolden = !elements.goldenResponse.value.trim();
   const missingTemplate = !state.currentTemplate;
-  const missingProviderModel = !elements.rubricProviderSelect.value || !elements.rubricModelSelect.value;
-  const noCandidates = isCandidateMode && !candidateResponsesFromInputs().length;
   const recommendationRunning = state.candidateRecommendation.status === "running";
-  const blocked = shouldAnalyzeCandidates
-    ? Boolean(state.modelsLoading || recommendationRunning || noCandidates || missingProviderModel)
-    : Boolean(state.modelsLoading || blockReason || missingPrompt || missingGolden || missingTemplate);
+  const blocked = Boolean(
+    state.modelsLoading ||
+      recommendationRunning ||
+      rubricsBlockedForCandidates ||
+      blockReason ||
+      missingPrompt ||
+      missingGolden ||
+      missingTemplate,
+  );
 
-  elements.generateRubrics.disabled = blocked;
-  if (shouldAnalyzeCandidates) {
-    elements.generateRubrics.textContent = recommendationRunning
-      ? "Analisando candidatas..."
-      : "Analisar candidatas com IA";
-  } else {
-    elements.generateRubrics.textContent = "Gerar Rubrics com IA";
+  if (elements.editorToolbar) {
+    elements.editorToolbar.hidden = false;
   }
+  elements.generateRubrics.disabled = blocked;
+  elements.generateRubrics.classList.toggle("candidate-blocked", rubricsBlockedForCandidates);
+  elements.generateRubrics.classList.toggle("candidate-ready", isCandidateMode && !blocked);
+  elements.generateRubrics.textContent = rubricsBlockedForCandidates
+    ? candidateRubricsContainmentMessage()
+    : isCandidateMode
+      ? "Gerar Rubrics"
+      : "Gerar Rubrics com IA";
 
   if (state.modelsLoading) {
     elements.generateRubrics.title = "Aguarde o carregamento dos modelos.";
   } else if (recommendationRunning) {
     elements.generateRubrics.title = "Analise de candidatas em andamento.";
-  } else if (shouldAnalyzeCandidates && noCandidates) {
-    elements.generateRubrics.title = "Carregue ao menos uma response_raw candidata.";
-  } else if (shouldAnalyzeCandidates && missingProviderModel) {
-    elements.generateRubrics.title = "Selecione provider e modelo antes de analisar.";
+  } else if (rubricsBlockedForCandidates) {
+    elements.generateRubrics.title = candidateRubricsContainmentMessage();
   } else if (blockReason) {
     elements.generateRubrics.title = blockReason;
   } else if (missingPrompt) {
@@ -2610,6 +2673,7 @@ function updateGenerateButtonState() {
   } else {
     elements.generateRubrics.removeAttribute("title");
   }
+  updateAnalyzeCandidatesButtonState();
 }
 
 function updateActionStates(report = state.lastValidationReport) {
@@ -2790,11 +2854,25 @@ elements.saveCase.addEventListener("click", () => {
   });
 });
 
+elements.analyzeCandidates.addEventListener("click", () => {
+  recommendGoldenCandidate().catch((error) => {
+    state.candidateRecommendation = {
+      status: "failed",
+      recommendedCandidateId: null,
+      recommendedCandidateLabel: null,
+      reason: "",
+      warnings: ["A IA nao retornou uma candidata valida. Tente novamente ou selecione uma candidata manualmente."],
+      metadata: { technical_error: error.message },
+      appliedToGolden: false,
+    };
+    elements.aiWarning.textContent = state.candidateRecommendation.warnings[0];
+    renderCandidateSelectorState();
+    updateGenerateButtonState();
+  });
+});
+
 elements.generateRubrics.addEventListener("click", () => {
-  const action = responseMode() === "candidates" && !recommendationAllowsRubricGeneration()
-    ? recommendGoldenCandidate
-    : generateRubrics;
-  action().catch((error) => {
+  generateRubrics().catch((error) => {
     elements.aiWarning.textContent = error.message;
     renderCandidateSelectorState();
     updateGenerateButtonState();
