@@ -65,6 +65,13 @@ const elements = {
   userPromptB: document.querySelector("#user-prompt-b"),
   diffPanel: document.querySelector("#diff-panel"),
   diffOutput: document.querySelector("#diff-output"),
+  exportSft: document.querySelector("#export-sft"),
+  exportDpo: document.querySelector("#export-dpo"),
+  exportStatus: document.querySelector("#export-status"),
+  inlineExportPanel: document.querySelector("#inline-export-panel"),
+  exportSftInline: document.querySelector("#export-sft-inline"),
+  exportDpoInline: document.querySelector("#export-dpo-inline"),
+  exportStatusInline: document.querySelector("#export-status-inline"),
 };
 
 async function fetchJson(path, options = {}) {
@@ -109,6 +116,7 @@ function showNotice(message, options = {}) {
   const title = options.title || "Aviso";
   const buttonLabel = options.buttonLabel || "OK";
   const onClose = typeof options.onClose === "function" ? options.onClose : null;
+  const extraActions = Array.isArray(options.actions) ? options.actions : [];
 
   const existing = document.querySelector(".app-modal-backdrop");
   if (existing) {
@@ -159,6 +167,22 @@ function showNotice(message, options = {}) {
       close();
     }
   };
+
+  for (const action of extraActions) {
+    const actionButton = document.createElement("button");
+    actionButton.type = "button";
+    actionButton.className = `app-modal-button ${action.kind === "secondary" ? "secondary" : ""}`;
+    actionButton.textContent = action.label;
+    actionButton.addEventListener("click", () => {
+      if (action.closeFirst !== false) {
+        close();
+      }
+      Promise.resolve(action.onClick?.()).catch((error) => {
+        showNotice(error.message || "Falha ao executar acao.", { title: "Falha" });
+      });
+    });
+    actions.appendChild(actionButton);
+  }
 
   button.addEventListener("click", close);
   backdrop.addEventListener("click", (event) => {
@@ -723,11 +747,74 @@ async function submitSelection(chosenKey) {
     showNotice(successMessage, {
       title: "Tudo certo",
       preserveWhitespace: true,
-      onClose: resetForm,
+      buttonLabel: "Fechar",
+      onClose: revealExportPanel,
+      actions: [
+        {
+          label: "Exportar DPO",
+          onClick: () => exportAnnotations("dpo"),
+        },
+        {
+          label: "Exportar SFT",
+          kind: "secondary",
+          onClick: () => exportAnnotations("sft"),
+        },
+      ],
     });
   } catch (error) {
     showNotice(`Erro ao salvar avaliacao: ${error.message}`, { title: "Falha" });
   }
+}
+
+async function exportAnnotations(format) {
+  const endpoint = format === "dpo"
+    ? "/api/annotations/sxs/export-dpo-jsonl"
+    : "/api/annotations/sxs/export-jsonl";
+  const result = await fetchJson(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ limit: 50000 }),
+  });
+  renderExportResult(result);
+  revealExportPanel();
+  const filename = fileNameFromPath(result.path);
+  const modalLines = [
+    `Export ${format.toUpperCase()} concluido.`,
+    "",
+    `Registros: ${result.records ?? 0}`,
+  ];
+  if (format === "dpo") {
+    modalLines.push(`Pulados: ${result.skipped ?? 0}`);
+  }
+  modalLines.push(`Arquivo: ${filename || "arquivo gerado"}`);
+  modalLines.push("");
+  modalLines.push("O caminho completo ficou no painel de export.");
+  showNotice(
+    modalLines.join("\n"),
+    { title: "Export concluido", preserveWhitespace: true },
+  );
+}
+
+function renderExportResult(result) {
+  const lines = [
+    result.format ? `Formato: ${String(result.format).toUpperCase()}` : null,
+    result.records !== undefined ? `Registros: ${result.records}` : null,
+    result.skipped !== undefined ? `Pulados: ${result.skipped}` : null,
+    result.path ? `Caminho: ${result.path}` : null,
+    result.error ? `Erro: ${result.error}` : null,
+  ].filter(Boolean);
+  const text = lines.length ? lines.join("\n") : JSON.stringify(result, null, 2);
+  elements.exportStatus.textContent = text;
+  if (elements.exportStatusInline) {
+    elements.exportStatusInline.textContent = text;
+  }
+}
+
+function fileNameFromPath(path) {
+  if (!path) {
+    return "";
+  }
+  return String(path).split(/[\\/]/).pop();
 }
 
 function resetForm() {
@@ -758,6 +845,15 @@ function resetForm() {
   elements.chooseB.classList.remove("active");
 }
 
+function revealExportPanel() {
+  elements.sidebarRight.classList.remove("collapsed");
+  elements.chooseA.classList.remove("active");
+  elements.chooseB.classList.remove("active");
+  renderEvaluationHistory();
+  const target = elements.inlineExportPanel || elements.sidebarRight;
+  target?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 elements.chooseA.addEventListener("click", () => {
   elements.chooseA.classList.add("active");
   elements.chooseB.classList.remove("active");
@@ -767,6 +863,34 @@ elements.chooseB.addEventListener("click", () => {
   elements.chooseB.classList.add("active");
   elements.chooseA.classList.remove("active");
   submitSelection("b");
+});
+
+elements.exportSft?.addEventListener("click", () => {
+  exportAnnotations("sft").catch((error) => {
+    renderExportResult({ error: error.message });
+    showNotice(`Erro no export SFT: ${error.message}`, { title: "Falha" });
+  });
+});
+
+elements.exportDpo?.addEventListener("click", () => {
+  exportAnnotations("dpo").catch((error) => {
+    renderExportResult({ error: error.message });
+    showNotice(`Erro no export DPO: ${error.message}`, { title: "Falha" });
+  });
+});
+
+elements.exportSftInline?.addEventListener("click", () => {
+  exportAnnotations("sft").catch((error) => {
+    renderExportResult({ error: error.message });
+    showNotice(`Erro no export SFT: ${error.message}`, { title: "Falha" });
+  });
+});
+
+elements.exportDpoInline?.addEventListener("click", () => {
+  exportAnnotations("dpo").catch((error) => {
+    renderExportResult({ error: error.message });
+    showNotice(`Erro no export DPO: ${error.message}`, { title: "Falha" });
+  });
 });
 
 init();

@@ -7,6 +7,7 @@ from app.main import app
 from app.dependencies import get_rubric_generation_service
 from app.schemas.rubric_contract import RubricContract, RubricWeightPolicy
 from app.services.candidate_recommendation_service import CandidateRecommendationService
+from app.services.rubric_candidate_scoring_service import RubricCandidateScoringService
 from app.services.rubric_generation_service import RubricGenerationService
 from app.services.providers.base_provider import BaseProvider, ProviderError, ProviderPrompt, ProviderResult
 
@@ -625,6 +626,109 @@ class LocalizationApiTest(unittest.TestCase):
         data = response.json()
         self.assertFalse(data["success"])
         self.assertEqual(data["metadata"]["generation_failure_type"], "provider_failed")
+
+    def test_score_candidates_endpoint_returns_weighted_preference(self):
+        self.fake_provider.response_text = json.dumps(
+            {
+                "candidate_scores": [
+                    {
+                        "candidate_id": "A",
+                        "rubric_scores": [
+                            {
+                                "rubric_index": 1,
+                                "score_factor": 1,
+                                "judgment": "met",
+                                "rationale": "Strong structure.",
+                            },
+                            {
+                                "rubric_index": 2,
+                                "score_factor": 0,
+                                "judgment": "not_met",
+                                "rationale": "No penalty.",
+                            },
+                        ],
+                    },
+                    {
+                        "candidate_id": "B",
+                        "rubric_scores": [
+                            {
+                                "rubric_index": 1,
+                                "score_factor": 0.5,
+                                "judgment": "partial",
+                                "rationale": "Partial structure.",
+                            },
+                            {
+                                "rubric_index": 2,
+                                "score_factor": 1,
+                                "judgment": "met",
+                                "rationale": "Penalty applies.",
+                            },
+                        ],
+                    },
+                ]
+            }
+        )
+        service = RubricCandidateScoringService(
+            providers={"fake": self.fake_provider},
+            default_provider="fake",
+        )
+
+        with patch(
+            "app.api.routes.localization.get_rubric_candidate_scoring_service",
+            return_value=service,
+        ):
+            response = self.client.post(
+                "/api/localization/rubrics/score-candidates",
+                json={
+                    "locale": "pt-BR",
+                    "category": "Writing",
+                    "prompt": "Synthetic prompt.",
+                    "golden_response": "Synthetic golden.",
+                    "rubrics": [
+                        self._rubric(dimension="Natural Language Fluency", weight=10, title="Structure"),
+                        self._rubric(
+                            dimension="Natural Language Fluency",
+                            weight=-6,
+                            title="Unsupported Claim Penalty",
+                        ),
+                    ],
+                    "candidate_responses": [
+                        {"id": "A", "label": "Candidate A", "response_raw": "A response."},
+                        {"id": "B", "label": "Candidate B", "response_raw": "B response."},
+                    ],
+                    "provider": "fake",
+                    "model": "fake-model",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["candidate_scores"][0]["total_score"], 10)
+        self.assertEqual(data["candidate_scores"][1]["total_score"], -1)
+        self.assertEqual(data["preference"]["chosen_candidate_id"], "A")
+        self.assertEqual(data["preference"]["rejected_candidate_id"], "B")
+
+    def test_agreement_metrics_endpoint_returns_kappa_and_alpha(self):
+        response = self.client.post(
+            "/api/localization/rubrics/agreement-metrics",
+            json={
+                "primary_rater_id": "human",
+                "secondary_rater_id": "judge",
+                "ratings": [
+                    {"item_id": "case-1", "rater_id": "human", "label": "A"},
+                    {"item_id": "case-1", "rater_id": "judge", "label": "A"},
+                    {"item_id": "case-2", "rater_id": "human", "label": "B"},
+                    {"item_id": "case-2", "rater_id": "judge", "label": "B"},
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["cohens_kappa"]["value"], 1.0)
+        self.assertEqual(data["krippendorff_alpha"]["value"], 1.0)
+        self.assertEqual(data["metadata"]["rater_count"], 2)
 
     def test_recommend_golden_debug_false_hides_trace_payload(self):
         self.fake_provider.response_text = json.dumps(

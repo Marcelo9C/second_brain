@@ -198,6 +198,18 @@
             <button id="choose-b" class="btn-choose">Escolher Modelo B</button>
           </div>
         </div>
+
+        <section id="inline-export-panel" class="annotation-card export-panel">
+          <div class="panel-header">
+            <p class="eyebrow">Data Export</p>
+            <h2>Preference Dataset</h2>
+          </div>
+          <div class="actions export-actions">
+            <button id="export-sft-inline" type="button">Exportar SFT</button>
+            <button id="export-dpo-inline" class="ghost" type="button">Exportar DPO</button>
+          </div>
+          <pre id="export-status-inline" class="code-block small">Nenhuma exportacao realizada.</pre>
+        </section>
       </main>
 
       <aside class="sidebar-right">
@@ -205,6 +217,11 @@
           <p class="eyebrow">Data Export</p>
           <h2>Avaliações Recentes</h2>
         </div>
+        <div class="actions export-actions">
+          <button id="export-sft" type="button">Exportar SFT</button>
+          <button id="export-dpo" class="ghost" type="button">Exportar DPO</button>
+        </div>
+        <pre id="export-status" class="code-block small">Nenhuma exportacao realizada.</pre>
         <div id="eval-history" class="history-list">
           <p class="subtle">As últimas 10 avaliações aparecerão aqui.</p>
         </div>

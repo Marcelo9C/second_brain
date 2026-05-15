@@ -9,12 +9,14 @@ from app.repositories.localization_repository import LocalizationRubricCaseRepos
 from app.repositories.rubric_generation_run_repository import RubricGenerationRunRepository
 from app.repositories.retrieval_traces import RetrievalTraceRepository
 from app.services.export_service import AnnotationExportService
+from app.services.agreement_metrics_service import AgreementMetricsService
 from app.services.candidate_recommendation_service import CandidateRecommendationService
 from app.services.localization_service import LocalizationService
 from app.services.llm_orchestrator import LLMOrchestratorService
 from app.services.providers.gemini_provider import GeminiProvider
 from app.services.providers.ollama_provider import OllamaProvider
 from app.services.rag_pipeline import RAGPipelineService
+from app.services.rubric_candidate_scoring_service import RubricCandidateScoringService
 from app.services.rubric_generation_service import RubricGenerationService
 from app.services.rubric_validation_service import RubricValidationService
 
@@ -58,6 +60,11 @@ def get_rubric_generation_run_repository() -> RubricGenerationRunRepository:
 @lru_cache
 def get_rubric_validation_service() -> RubricValidationService:
     return RubricValidationService()
+
+
+@lru_cache
+def get_agreement_metrics_service() -> AgreementMetricsService:
+    return AgreementMetricsService()
 
 
 @lru_cache
@@ -137,4 +144,24 @@ def get_candidate_recommendation_service() -> CandidateRecommendationService:
         },
         default_provider="ollama",
         debug_trace=settings.localization_debug_recommendation_trace,
+    )
+
+
+@lru_cache
+def get_rubric_candidate_scoring_service() -> RubricCandidateScoringService:
+    settings = get_settings()
+    return RubricCandidateScoringService(
+        providers={
+            "ollama": OllamaProvider(
+                base_url=settings.ollama_base_url,
+                fallback_model=settings.localization_rubric_model,
+            ),
+            "gemini": GeminiProvider(
+                api_key=settings.gemini_api_key,
+                base_url=settings.gemini_base_url,
+                default_model=settings.gemini_default_model,
+                models=settings.gemini_models,
+            ),
+        },
+        default_provider="ollama",
     )

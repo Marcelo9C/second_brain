@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from app.services.providers.base_provider import ProviderPrompt
+from app.services.providers.base_provider import ProviderError, ProviderPrompt
 from app.services.providers.gemini_provider import GeminiProvider
 
 
@@ -130,6 +130,17 @@ class GeminiProviderContractTest(unittest.TestCase):
         self.assertEqual(generation_config["responseSchema"], schema)
         self.assertEqual(generation_config["responseSchema"]["minItems"], 6)
         self.assertEqual(generation_config["responseSchema"]["maxItems"], 6)
+
+    def test_gemini_timeout_becomes_provider_error(self) -> None:
+        with patch("app.services.providers.gemini_provider.urlopen", side_effect=TimeoutError("timed out")):
+            with self.assertRaisesRegex(ProviderError, "Gemini timed out after 180 seconds"):
+                self.provider().generate(
+                    prompt=ProviderPrompt(
+                        system_contract="Return JSON.",
+                        task_payload="Generate.",
+                    ),
+                    model="gemini-test",
+                )
 
 
 if __name__ == "__main__":

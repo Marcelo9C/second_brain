@@ -205,8 +205,23 @@
 
               <div class="candidate-preview" aria-label="Acoes de selecao da Golden">
                 <button id="analyze-candidates" class="primary-action-button" type="button">Analisar candidatas com IA</button>
+                <button id="score-candidates" class="ghost" type="button">Pontuar com rubrics</button>
                 <button id="use-selected-as-golden" class="ghost" type="button">Usar selecionada como base da Golden</button>
               </div>
+
+              <section id="candidate-scoring-panel" class="candidate-scoring-panel" hidden>
+                <div class="workbench-panel-header">
+                  <div>
+                    <span class="panel-kicker">Reward decomposition</span>
+                    <h3>Score ponderado das candidatas</h3>
+                  </div>
+                  <span id="candidate-scoring-status" class="badge neutral">idle</span>
+                </div>
+                <div id="candidate-scoring-summary" class="state-summary neutral">
+                  Nenhum scoring executado.
+                </div>
+                <div id="candidate-scoring-results" class="candidate-scoring-results"></div>
+              </section>
             </section>
 
             <label>

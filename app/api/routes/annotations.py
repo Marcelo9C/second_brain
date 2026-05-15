@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from app.dependencies import get_annotation_export_service, get_annotation_repository
-from app.schemas.annotations import AnnotationExportRequest, AnnotationSxSCreate
+from app.schemas.annotations import AnnotationDpoExportRequest, AnnotationExportRequest, AnnotationSxSCreate
 
 
 router = APIRouter(prefix="/api/annotations", tags=["annotations"])
@@ -48,4 +48,13 @@ def export_annotations(payload: AnnotationExportRequest) -> dict[str, object]:
     return get_annotation_export_service().export_sft_jsonl(
         limit=payload.limit,
         output_path=payload.output_path,
+    )
+
+
+@router.post("/sxs/export-dpo-jsonl")
+def export_annotations_dpo(payload: AnnotationDpoExportRequest) -> dict[str, object]:
+    return get_annotation_export_service().export_dpo_jsonl(
+        limit=payload.limit,
+        output_path=payload.output_path,
+        include_metadata=payload.include_metadata,
     )

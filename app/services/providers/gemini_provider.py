@@ -109,6 +109,8 @@ class GeminiProvider(BaseProvider):
             raise ProviderError(message) from error
         except URLError as error:
             raise ProviderError(f"Gemini unreachable: {error.reason}") from error
+        except TimeoutError as error:
+            raise ProviderError("Gemini timed out after 180 seconds.") from error
 
         data = json.loads(raw) if raw else {}
         try:

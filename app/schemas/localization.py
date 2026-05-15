@@ -78,6 +78,83 @@ class CandidateGoldenRecommendationResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class RubricCandidateScoringRequest(BaseModel):
+    locale: str = "pt-BR"
+    category: LocalizationCategory
+    chat_history: Any = Field(default_factory=list)
+    prompt: str | None = None
+    golden_response: str | None = None
+    rubrics: list[dict[str, Any]]
+    candidate_responses: list[CandidateResponse]
+    provider: str
+    model: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    contract: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_scoring_request(self) -> "RubricCandidateScoringRequest":
+        provider = _clean_text(self.provider)
+        model = _clean_text(self.model)
+        if not provider:
+            raise ValueError("provider is required.")
+        if not model:
+            raise ValueError("model is required.")
+
+        contract = RubricContract.model_validate(self.contract) if self.contract else None
+        validate_rubric_payload(self.rubrics, contract=contract)
+
+        candidates = _normalize_candidate_responses(
+            [candidate.model_dump(mode="json") for candidate in self.candidate_responses]
+        )
+        non_empty_candidates = [
+            CandidateResponse(**candidate)
+            for candidate in candidates
+            if _clean_text(candidate.get("response_raw"))
+        ]
+        if len(non_empty_candidates) < 2:
+            raise ValueError("candidate_responses must contain at least two non-empty candidates.")
+
+        self.provider = provider
+        self.model = model
+        self.candidate_responses = non_empty_candidates
+        return self
+
+
+class AgreementRating(BaseModel):
+    item_id: str
+    rater_id: str
+    label: str
+
+    @model_validator(mode="after")
+    def validate_rating(self) -> "AgreementRating":
+        self.item_id = _clean_text(self.item_id) or ""
+        self.rater_id = _clean_text(self.rater_id) or ""
+        self.label = _clean_text(self.label) or ""
+        if not self.item_id:
+            raise ValueError("item_id is required.")
+        if not self.rater_id:
+            raise ValueError("rater_id is required.")
+        if not self.label:
+            raise ValueError("label is required.")
+        return self
+
+
+class AgreementMetricsRequest(BaseModel):
+    ratings: list[AgreementRating]
+    primary_rater_id: str | None = None
+    secondary_rater_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_agreement_request(self) -> "AgreementMetricsRequest":
+        if len(self.ratings) < 2:
+            raise ValueError("ratings must contain at least two ratings.")
+        self.primary_rater_id = _clean_text(self.primary_rater_id)
+        self.secondary_rater_id = _clean_text(self.secondary_rater_id)
+        if bool(self.primary_rater_id) != bool(self.secondary_rater_id):
+            raise ValueError("primary_rater_id and secondary_rater_id must be provided together.")
+        return self
+
+
 def normalize_candidate_response_payload(
     payload: dict[str, Any],
     *,

@@ -43,6 +43,11 @@ const state = {
     metadata: null,
     appliedToGolden: false,
   },
+  candidateScoring: {
+    status: "idle",
+    result: null,
+    error: "",
+  },
 };
 
 const API_BASE =
@@ -82,6 +87,11 @@ const elements = {
   candidateRadios: Array.from(document.querySelectorAll('input[name="selected-candidate"]')),
   candidateSlots: Array.from(document.querySelectorAll(".candidate-slot")),
   analyzeCandidates: document.querySelector("#analyze-candidates"),
+  scoreCandidates: document.querySelector("#score-candidates"),
+  candidateScoringPanel: document.querySelector("#candidate-scoring-panel"),
+  candidateScoringStatus: document.querySelector("#candidate-scoring-status"),
+  candidateScoringSummary: document.querySelector("#candidate-scoring-summary"),
+  candidateScoringResults: document.querySelector("#candidate-scoring-results"),
   useSelectedAsGolden: document.querySelector("#use-selected-as-golden"),
   goldenResponse: document.querySelector("#golden-response"),
   evaluatorNotes: document.querySelector("#evaluator-notes"),
@@ -267,6 +277,15 @@ function resetCandidateRecommendation(reason = "candidate_recommendation_reset")
   state.goldenDraftFromRecommendation = false;
 }
 
+function resetCandidateScoring() {
+  state.candidateScoring = {
+    status: "idle",
+    result: null,
+    error: "",
+  };
+  renderCandidateScoring();
+}
+
 function goldenRecommendationMetadata() {
   const recommendation = state.candidateRecommendation;
   if (!recommendation?.recommendedCandidateId) {
@@ -449,6 +468,7 @@ function renderCandidateSelectorState() {
     }
     elements.candidateRecommendationSummary.hidden = true;
     elements.candidateRecommendationSummary.textContent = "";
+    renderCandidateScoring();
     return;
   }
 
@@ -501,6 +521,8 @@ function renderCandidateSelectorState() {
     elements.useSelectedAsGolden.disabled = !(selectedId && selectedText);
   }
   updateAnalyzeCandidatesButtonState();
+  updateScoreCandidatesButtonState();
+  renderCandidateScoring();
 }
 
 function renderCandidateRecommendationSummary() {
@@ -714,6 +736,149 @@ function updateAnalyzeCandidatesButtonState() {
   }
 }
 
+function candidateScoringBlockReason() {
+  if (responseMode() !== "candidates") {
+    return "Disponivel apenas no modo 4 response_raw candidatas.";
+  }
+  if (state.modelsLoading) {
+    return "Aguarde o carregamento dos modelos.";
+  }
+  if (!elements.rubricProviderSelect.value || !elements.rubricModelSelect.value) {
+    return "Selecione provider e modelo antes de pontuar.";
+  }
+  if (state.candidateScoring.status === "running") {
+    return "Scoring de candidatas em andamento.";
+  }
+  const candidateResponses = candidateResponsesFromInputs();
+  if (candidateResponses.length < 2) {
+    return "Carregue ao menos duas candidatas para pontuar.";
+  }
+  const snapshot = rubricsEditorSnapshot();
+  if (!Array.isArray(snapshot.rubrics) || !snapshot.rubrics.length) {
+    return "Gere ou cole rubrics validas antes de pontuar candidatas.";
+  }
+  if (!snapshot.ok) {
+    return "Corrija o JSON de rubrics antes de pontuar candidatas.";
+  }
+  return null;
+}
+
+function updateScoreCandidatesButtonState() {
+  if (!elements.scoreCandidates) {
+    return;
+  }
+  const reason = candidateScoringBlockReason();
+  const running = state.candidateScoring.status === "running";
+  elements.scoreCandidates.disabled = Boolean(reason);
+  elements.scoreCandidates.textContent = running
+    ? "Pontuando..."
+    : "Pontuar com rubrics";
+  if (reason) {
+    elements.scoreCandidates.title = reason;
+  } else {
+    elements.scoreCandidates.removeAttribute("title");
+  }
+}
+
+function renderCandidateScoring() {
+  if (
+    !elements.candidateScoringPanel ||
+    !elements.candidateScoringStatus ||
+    !elements.candidateScoringSummary ||
+    !elements.candidateScoringResults
+  ) {
+    return;
+  }
+
+  const isCandidateMode = responseMode() === "candidates";
+  elements.candidateScoringPanel.hidden = !isCandidateMode;
+  if (!isCandidateMode) {
+    return;
+  }
+
+  const scoring = state.candidateScoring || { status: "idle" };
+  elements.candidateScoringResults.innerHTML = "";
+  elements.candidateScoringStatus.className = "badge neutral";
+  elements.candidateScoringStatus.textContent = scoring.status || "idle";
+
+  if (scoring.status === "running") {
+    elements.candidateScoringStatus.className = "badge warning";
+    setStateSummary(
+      elements.candidateScoringSummary,
+      "warning",
+      "Scoring em andamento",
+      "O judge esta aplicando as rubrics em cada candidata.",
+    );
+    return;
+  }
+
+  if (scoring.status === "failed") {
+    elements.candidateScoringStatus.className = "badge offline";
+    setStateSummary(
+      elements.candidateScoringSummary,
+      "offline",
+      "Scoring falhou",
+      scoring.error || "O judge nao retornou uma decomposicao valida.",
+    );
+    return;
+  }
+
+  const result = scoring.result;
+  if (!result) {
+    setStateSummary(
+      elements.candidateScoringSummary,
+      "neutral",
+      "Nenhum scoring",
+      "Execute a pontuacao depois de carregar candidatas e rubrics validas.",
+    );
+    return;
+  }
+
+  const preference = result.preference || {};
+  const chosen = preference.chosen_candidate_id || "empate";
+  const rejected = preference.rejected_candidate_id || "n/d";
+  elements.candidateScoringStatus.className = "badge ok";
+  elements.candidateScoringStatus.textContent = "ready";
+  setStateSummary(
+    elements.candidateScoringSummary,
+    "ok",
+    `Chosen ${chosen}`,
+    `Rejected ${rejected}. Ranking: ${(preference.ranking || []).join(" > ") || "n/d"}. Margem: ${preference.margin ?? "n/d"}.`,
+  );
+
+  for (const candidate of result.candidate_scores || []) {
+    const card = document.createElement("article");
+    card.className = "candidate-score-card";
+
+    const header = document.createElement("div");
+    header.className = "candidate-score-card__header";
+    const title = document.createElement("h4");
+    title.textContent = `${candidate.candidate_id} - ${candidate.candidate_label || "Candidate"}`;
+    const score = document.createElement("span");
+    score.className = "candidate-score-total";
+    score.textContent = String(candidate.total_score);
+    header.append(title, score);
+
+    const list = document.createElement("div");
+    list.className = "candidate-score-breakdown";
+    for (const rubricScore of candidate.rubric_scores || []) {
+      const row = document.createElement("div");
+      row.className = "candidate-score-row";
+      const label = document.createElement("span");
+      label.textContent = rubricScore.rubric_title || `Rubric ${rubricScore.rubric_index}`;
+      const points = document.createElement("strong");
+      points.textContent = `${rubricScore.points >= 0 ? "+" : ""}${rubricScore.points}`;
+      const rationale = document.createElement("p");
+      rationale.textContent = rubricScore.rationale || rubricScore.judgment || "";
+      row.append(label, points, rationale);
+      list.appendChild(row);
+    }
+
+    card.append(header, list);
+    elements.candidateScoringResults.appendChild(card);
+  }
+}
+
 function markGenerationStale(reason = "case_changed_after_generation", extra = {}) {
   const hadGeneration = Boolean(state.lastGenerationMetadata || state.lastRawModelResponse);
   state.lastGenerationMetadata = null;
@@ -739,6 +904,23 @@ function editorHasAppliedRubrics() {
     return Array.isArray(parsed) && parsed.length > 0;
   } catch {
     return false;
+  }
+}
+
+function rubricsEditorSnapshot() {
+  try {
+    const rubrics = elements.rubricsEditor.value.trim()
+      ? JSON.parse(elements.rubricsEditor.value)
+      : [];
+    return {
+      ok: Array.isArray(rubrics),
+      rubrics: Array.isArray(rubrics) ? rubrics : null,
+    };
+  } catch {
+    return {
+      ok: false,
+      rubrics: null,
+    };
   }
 }
 
@@ -1384,6 +1566,17 @@ function fillCase(record) {
         appliedToGolden: false,
       };
   state.goldenDraftFromRecommendation = state.goldenSource?.mode === "from_recommended_candidate";
+  state.candidateScoring = record?.metadata?.candidate_scoring
+    ? {
+        status: "ready",
+        result: record.metadata.candidate_scoring,
+        error: "",
+      }
+    : {
+        status: "idle",
+        result: null,
+        error: "",
+      };
   elements.evaluatorNotes.value = record?.evaluator_notes || "";
   elements.tagsInput.value = Array.isArray(record?.tags) ? record.tags.join(", ") : "";
   state.lastGenerationMetadata = record?.metadata?.rubric_generation || null;
@@ -1414,6 +1607,7 @@ function resetCase() {
   elements.goldenResponse.value = "";
   state.goldenSource = { mode: "manual", candidate_id: null };
   resetCandidateRecommendation();
+  resetCandidateScoring();
   elements.evaluatorNotes.value = "";
   elements.tagsInput.value = "";
   state.lastGenerationMetadata = null;
@@ -1496,6 +1690,7 @@ function buildPayload(statusOverride = null) {
       human_quality_reviewed: state.humanQualityReviewed,
       golden_source: state.goldenSource || { mode: "manual", candidate_id: null },
       golden_recommendation: goldenRecommendationMetadata(),
+      candidate_scoring: state.candidateScoring?.result || null,
       validation_report: validation.report,
       rubric_generation: state.lastGenerationMetadata,
       raw_model_response: state.lastRawModelResponse,
@@ -2431,6 +2626,88 @@ async function recommendGoldenCandidate() {
   }
 }
 
+async function scoreCandidatesWithRubrics() {
+  const blockReason = candidateScoringBlockReason();
+  if (blockReason) {
+    throw new Error(blockReason);
+  }
+
+  const candidateResponses = candidateResponsesFromInputs();
+  const validation = validateRubrics();
+  const contractState = editorContractState();
+  const providerRequested = elements.rubricProviderSelect.value;
+  const modelRequested = elements.rubricModelSelect.value;
+
+  state.candidateScoring = {
+    status: "running",
+    result: null,
+    error: "",
+  };
+  renderCandidateScoring();
+  updateScoreCandidatesButtonState();
+
+  elements.scoreCandidates.disabled = true;
+  elements.scoreCandidates.classList.add("generating");
+  elements.scoreCandidates.setAttribute("aria-busy", "true");
+  elements.scoreCandidates.textContent = "Pontuando...";
+
+  try {
+    const result = await fetchJson("/api/localization/rubrics/score-candidates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        locale: elements.localeSelect.value,
+        category: elements.categorySelect.value,
+        chat_history: parseChatHistory(),
+        prompt: elements.prompt.value.trim() || null,
+        golden_response: elements.goldenResponse.value.trim() || null,
+        rubrics: validation.rubrics,
+        contract: contractState.editorContract || state.currentTemplate?.contract || null,
+        candidate_responses: candidateResponses,
+        provider: providerRequested,
+        model: modelRequested,
+        metadata: {
+          source: "localization_rubric_lab",
+          template_contract: contractState.editorContract || state.currentTemplate?.contract || null,
+          current_template_contract: state.currentTemplate?.contract || null,
+        },
+      }),
+    });
+
+    if (!result.success) {
+      const warning = result.warnings?.[0] || "O judge nao retornou uma decomposicao valida.";
+      state.candidateScoring = {
+        status: "failed",
+        result,
+        error: warning,
+      };
+      elements.aiWarning.textContent = warning;
+      renderCandidateScoring();
+      return;
+    }
+
+    state.candidateScoring = {
+      status: "ready",
+      result,
+      error: "",
+    };
+    const chosen = result.preference?.chosen_candidate_id;
+    if (chosen && candidateText(chosen)) {
+      setSelectedCandidate(chosen);
+      syncEvaluatedResponse();
+    }
+    elements.aiWarning.textContent = chosen
+      ? `Scoring concluido. Candidata ${chosen} ficou no topo pelo score ponderado.`
+      : "Scoring concluido com empate no topo.";
+    renderCandidateSelectorState();
+  } finally {
+    elements.scoreCandidates.disabled = false;
+    elements.scoreCandidates.classList.remove("generating");
+    elements.scoreCandidates.removeAttribute("aria-busy");
+    updateScoreCandidatesButtonState();
+  }
+}
+
 async function exportCases(format) {
   const endpoint =
     format === "csv"
@@ -3112,6 +3389,7 @@ function updateActionStates(report = state.lastValidationReport) {
   elements.exportJsonl.disabled = hasContractMismatch;
   elements.exportCsv.disabled = hasContractMismatch;
   updateGenerateButtonState();
+  updateScoreCandidatesButtonState();
 }
 
 elements.loadTemplate.addEventListener("click", () => {
@@ -3145,10 +3423,12 @@ elements.rubricsEditor.addEventListener("input", () => {
   if (!editorHasAppliedRubrics()) {
     state.editorArtifactMetadata = null;
   }
+  resetCandidateScoring();
   invalidateQualityReview();
   invalidateGenerationMetadata();
 });
 elements.prompt.addEventListener("input", () => {
+  resetCandidateScoring();
   invalidateQualityReview();
   invalidateGenerationMetadata();
 });
@@ -3163,6 +3443,7 @@ for (const radio of elements.responseModeRadios) {
     }
     renderResponseMode();
     resetCandidateRecommendation("response_mode_changed_after_recommendation");
+    resetCandidateScoring();
     invalidateQualityReview();
     invalidateGenerationMetadata("response_mode_changed_after_generation", {
       response_mode: responseMode(),
@@ -3180,6 +3461,7 @@ elements.responseRaw.addEventListener("input", () => {
 for (const radio of elements.candidateRadios) {
   radio.addEventListener("change", () => {
     resetCandidateRecommendation("selected_candidate_changed_after_recommendation");
+    resetCandidateScoring();
     syncEvaluatedResponse();
     invalidateQualityReview();
     invalidateGenerationMetadata("selected_candidate_changed_after_generation", {
@@ -3191,6 +3473,7 @@ for (const radio of elements.candidateRadios) {
 for (const [candidateId, textarea] of Object.entries(elements.candidateInputs)) {
   textarea.addEventListener("input", () => {
     resetCandidateRecommendation("candidate_response_changed_after_recommendation");
+    resetCandidateScoring();
     syncEvaluatedResponse();
     invalidateQualityReview();
     invalidateGenerationMetadata("candidate_response_changed_after_generation", {
@@ -3241,20 +3524,24 @@ elements.goldenResponse.addEventListener("input", () => {
   } else {
     state.goldenSource = { mode: "manual", candidate_id: null };
   }
+  resetCandidateScoring();
   invalidateQualityReview();
   invalidateGenerationMetadata();
 });
 elements.chatHistory.addEventListener("input", () => {
+  resetCandidateScoring();
   invalidateQualityReview();
   invalidateGenerationMetadata();
 });
 elements.categorySelect.addEventListener("change", () => {
+  resetCandidateScoring();
   invalidateGenerationMetadata();
   loadTemplate().catch((error) => {
     elements.templateSummary.textContent = error.message;
   });
 });
 elements.localeSelect.addEventListener("change", () => {
+  resetCandidateScoring();
   invalidateGenerationMetadata();
   loadTemplate().catch((error) => {
     elements.templateSummary.textContent = error.message;
@@ -3263,6 +3550,7 @@ elements.localeSelect.addEventListener("change", () => {
 
 elements.rubricProviderSelect.addEventListener("change", () => {
   resetCandidateRecommendation("provider_changed_after_recommendation");
+  resetCandidateScoring();
   invalidateGenerationMetadata();
   loadProviderModels().catch((error) => {
     elements.aiWarning.textContent = error.message;
@@ -3271,6 +3559,7 @@ elements.rubricProviderSelect.addEventListener("change", () => {
 
 elements.rubricModelSelect.addEventListener("change", () => {
   resetCandidateRecommendation("model_changed_after_recommendation");
+  resetCandidateScoring();
   invalidateGenerationMetadata();
 });
 
@@ -3300,6 +3589,19 @@ elements.analyzeCandidates.addEventListener("click", () => {
     elements.aiWarning.textContent = state.candidateRecommendation.warnings[0];
     renderCandidateSelectorState();
     updateGenerateButtonState();
+  });
+});
+
+elements.scoreCandidates.addEventListener("click", () => {
+  scoreCandidatesWithRubrics().catch((error) => {
+    state.candidateScoring = {
+      status: "failed",
+      result: null,
+      error: error.message,
+    };
+    elements.aiWarning.textContent = error.message;
+    renderCandidateScoring();
+    updateScoreCandidatesButtonState();
   });
 });
 

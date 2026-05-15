@@ -8,15 +8,19 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from app.dependencies import (
+    get_agreement_metrics_service,
     get_candidate_recommendation_service,
     get_localization_service,
+    get_rubric_candidate_scoring_service,
     get_rubric_generation_run_repository,
     get_rubric_generation_service,
     get_rubric_validation_service,
 )
 from app.schemas.localization import (
     CandidateGoldenRecommendationRequest,
+    AgreementMetricsRequest,
     LocalizationCategory,
+    RubricCandidateScoringRequest,
     RubricCaseCreate,
     RubricCaseExportRequest,
     RubricCaseUpdate,
@@ -159,6 +163,33 @@ def recommend_golden_candidate(payload: CandidateGoldenRecommendationRequest) ->
         raise HTTPException(status_code=400, detail=str(error)) from error
     except RubricGenerationError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@router.post("/rubrics/score-candidates")
+def score_candidates_with_rubrics(payload: RubricCandidateScoringRequest) -> dict[str, object]:
+    data = payload.model_dump()
+    try:
+        contract = get_localization_service().active_contract_for_payload(
+            data,
+            verify_payload_contract=True,
+        )
+        return get_rubric_candidate_scoring_service().score(data, active_contract=contract)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except RubricGenerationError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@router.post("/rubrics/agreement-metrics")
+def compute_agreement_metrics(payload: AgreementMetricsRequest) -> dict[str, object]:
+    try:
+        return get_agreement_metrics_service().compute(
+            [rating.model_dump() for rating in payload.ratings],
+            primary_rater_id=payload.primary_rater_id,
+            secondary_rater_id=payload.secondary_rater_id,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.post("/rubrics/validate")
