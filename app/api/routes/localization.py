@@ -100,10 +100,40 @@ def list_rubric_generation_runs_for_case(case_id: str) -> list[dict[str, object]
 @router.patch("/rubric-cases/{case_id}")
 def update_rubric_case(case_id: str, payload: RubricCaseUpdate) -> dict[str, object]:
     updates = payload.model_dump(exclude_unset=True)
+    localization_service = get_localization_service()
+    existing = localization_service.get_case(case_id) if hasattr(localization_service, "get_case") else None
+    logger.info(
+        "Rubric case PATCH received: case_id=%s existing_status=%s incoming_status=%s "
+        "locale=%s category=%s rubrics_count=%s metadata_keys=%s",
+        case_id,
+        existing.get("status") if existing else None,
+        updates.get("status"),
+        updates.get("locale"),
+        updates.get("category"),
+        len(updates.get("rubrics") or []) if isinstance(updates.get("rubrics"), list) else None,
+        sorted((updates.get("metadata") or {}).keys()) if isinstance(updates.get("metadata"), dict) else [],
+    )
     try:
-        record = get_localization_service().update_case(case_id, updates)
+        record = localization_service.update_case(case_id, updates)
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        logger.warning(
+            "Rubric case PATCH rejected: case_id=%s existing_status=%s incoming_status=%s "
+            "error=%s body=%s",
+            case_id,
+            existing.get("status") if existing else None,
+            updates.get("status"),
+            error,
+            updates,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": str(error),
+                "case_id": case_id,
+                "existing_status": existing.get("status") if existing else None,
+                "incoming_status": updates.get("status"),
+            },
+        ) from error
     if not record:
         raise HTTPException(status_code=404, detail="Rubric case not found.")
     return {"rubric_case": record}
@@ -127,10 +157,29 @@ def generate_rubrics(payload: RubricGenerateRequest) -> dict[str, object]:
         data = payload.model_dump()
         localization_service = get_localization_service()
         generation_service = get_rubric_generation_service()
-        contract = localization_service.active_contract_for_payload(
-            data,
-            verify_payload_contract=True,
+        client_contract = data.get("contract")
+        if not client_contract:
+            client_contract = (data.get("metadata") or {}).get("template_contract")
+        formal_template = localization_service.formal_template_for_payload(data)
+        contract = formal_template.contract if formal_template is not None else None
+        logger.info(
+            "Rubric generate contract audit: payload.category=%s payload.locale=%s "
+            "payload.contract=%s formalTemplate.category=%s formalTemplate.contract=%s",
+            data.get("category"),
+            data.get("locale"),
+            client_contract,
+            getattr(formal_template, "category", None),
+            contract.model_dump(mode="json") if contract is not None else None,
         )
+        metadata = dict(data.get("metadata") or {})
+        if client_contract:
+            metadata["client_payload_contract"] = client_contract
+        if contract is not None:
+            metadata["template_contract"] = contract.model_dump(mode="json")
+            data["contract"] = metadata["template_contract"]
+        else:
+            data.pop("contract", None)
+        data["metadata"] = metadata
         run_context = _start_generation_run(data, contract=contract, generation_service=generation_service)
         if not run_context:
             raise HTTPException(
@@ -169,10 +218,16 @@ def recommend_golden_candidate(payload: CandidateGoldenRecommendationRequest) ->
 def score_candidates_with_rubrics(payload: RubricCandidateScoringRequest) -> dict[str, object]:
     data = payload.model_dump()
     try:
-        contract = get_localization_service().active_contract_for_payload(
-            data,
-            verify_payload_contract=True,
-        )
+        localization_service = get_localization_service()
+        formal_template = localization_service.formal_template_for_payload(data)
+        contract = formal_template.contract if formal_template is not None else None
+        metadata = dict(data.get("metadata") or {})
+        if contract is not None:
+            metadata["template_contract"] = contract.model_dump(mode="json")
+            data["contract"] = metadata["template_contract"]
+        else:
+            data.pop("contract", None)
+        data["metadata"] = metadata
         return get_rubric_candidate_scoring_service().score(data, active_contract=contract)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -195,14 +250,50 @@ def compute_agreement_metrics(payload: AgreementMetricsRequest) -> dict[str, obj
 @router.post("/rubrics/validate")
 def validate_rubrics(payload: RubricValidationRequest) -> dict[str, object]:
     data = payload.model_dump()
+    logger.info(
+        "Rubric validate body received: case_id=%s locale=%s category=%s rubrics_count=%s metadata_keys=%s",
+        data.get("case_id"),
+        data.get("locale"),
+        data.get("category"),
+        len(data.get("rubrics") or []) if isinstance(data.get("rubrics"), list) else None,
+        sorted((data.get("metadata") or {}).keys()),
+    )
     try:
-        contract = get_localization_service().active_contract_for_payload(
-            data,
-            verify_payload_contract=True,
+        localization_service = get_localization_service()
+        client_contract = data.get("contract")
+        if not client_contract:
+            client_contract = (data.get("metadata") or {}).get("template_contract")
+        formal_template = localization_service.formal_template_for_payload(data)
+        contract = formal_template.contract if formal_template is not None else None
+        logger.info(
+            "Rubric validate contract audit: payload.category=%s payload.locale=%s "
+            "payload.contract=%s formalTemplate.category=%s formalTemplate.contract=%s",
+            data.get("category"),
+            data.get("locale"),
+            client_contract,
+            getattr(formal_template, "category", None),
+            contract.model_dump(mode="json") if contract is not None else None,
         )
+        metadata = dict(data.get("metadata") or {})
+        if client_contract:
+            metadata["client_payload_contract"] = client_contract
+        if contract is not None:
+            metadata["template_contract"] = contract.model_dump(mode="json")
+            data["contract"] = metadata["template_contract"]
+        else:
+            data.pop("contract", None)
+        data["metadata"] = metadata
+        return get_rubric_validation_service().validate_case(data, active_contract=contract)
     except ValueError as error:
+        logger.warning(
+            "Rubric validate rejected: case_id=%s locale=%s category=%s error=%s body=%s",
+            data.get("case_id"),
+            data.get("locale"),
+            data.get("category"),
+            error,
+            data,
+        )
         raise HTTPException(status_code=400, detail=str(error)) from error
-    return get_rubric_validation_service().validate_case(data, active_contract=contract)
 
 
 @router.get("/rubrics/runs/{run_id}")

@@ -45,7 +45,12 @@ class AnnotationSxSCreate(BaseModel):
 class AnnotationExportRequest(BaseModel):
     limit: int = Field(default=1000, ge=1, le=50000)
     output_path: str | None = None
+    annotation_id: str | None = None
 
 
 class AnnotationDpoExportRequest(AnnotationExportRequest):
+    include_metadata: bool = True
+
+
+class AnnotationRmExportRequest(AnnotationExportRequest):
     include_metadata: bool = True

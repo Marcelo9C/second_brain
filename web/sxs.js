@@ -9,7 +9,11 @@ const state = {
   activeBlindMode: false,
   resultA: null,
   resultB: null,
+  approvedRubricCases: [],
+  rubricScoring: null,
+  lastSavedAnnotationId: null,
 };
+const Session = window.Session;
 
 const API_BASE =
   window.location.origin && window.location.origin !== "null"
@@ -67,11 +71,25 @@ const elements = {
   diffOutput: document.querySelector("#diff-output"),
   exportSft: document.querySelector("#export-sft"),
   exportDpo: document.querySelector("#export-dpo"),
+  exportRm: document.querySelector("#export-rm"),
+  exportCurrentSft: document.querySelector("#export-current-sft"),
+  exportCurrentDpo: document.querySelector("#export-current-dpo"),
+  exportCurrentRm: document.querySelector("#export-current-rm"),
   exportStatus: document.querySelector("#export-status"),
   inlineExportPanel: document.querySelector("#inline-export-panel"),
   exportSftInline: document.querySelector("#export-sft-inline"),
   exportDpoInline: document.querySelector("#export-dpo-inline"),
+  exportRmInline: document.querySelector("#export-rm-inline"),
+  exportCurrentSftInline: document.querySelector("#export-current-sft-inline"),
+  exportCurrentDpoInline: document.querySelector("#export-current-dpo-inline"),
+  exportCurrentRmInline: document.querySelector("#export-current-rm-inline"),
+  currentExportHint: document.querySelector("#current-export-hint"),
+  currentExportHintSidebar: document.querySelector("#current-export-hint-sidebar"),
   exportStatusInline: document.querySelector("#export-status-inline"),
+  rubricCaseSelect: document.querySelector("#rubric-case-select"),
+  rubricJudgeModel: document.querySelector("#rubric-judge-model"),
+  scoreWithRubrics: document.querySelector("#score-with-rubrics"),
+  rubricScoreOutput: document.querySelector("#rubric-score-output"),
 };
 
 async function fetchJson(path, options = {}) {
@@ -262,7 +280,70 @@ function revealPresentationLabels() {
   elements.labelB.classList.add("revealed");
 }
 
+function hydrateSxsFromSession() {
+  if (!Session) {
+    return;
+  }
+  const session = Session.hydrate();
+  state.lastSavedAnnotationId = session.activeAnnotationId || null;
+  if (session.activeScoring) {
+    state.rubricScoring = session.activeScoring;
+  }
+  console.info("[Session] sync", {
+    source: "sxs",
+    activeAnnotationId: state.lastSavedAnnotationId,
+    activeCaseId: session.activeCaseId || null,
+    activeRunId: session.activeRunId || null,
+  });
+}
+
+function syncSessionFromSxs(patch = {}) {
+  if (!Session) {
+    return null;
+  }
+  const session = Session.patch(patch);
+  console.info("[Session] sync", {
+    source: "sxs",
+    activeAnnotationId: session.activeAnnotationId,
+    activeCaseId: session.activeCaseId,
+  });
+  updateCurrentExportControls();
+  return session;
+}
+
+function currentAnnotationId() {
+  return state.lastSavedAnnotationId || Session?.get()?.activeAnnotationId || null;
+}
+
+function updateCurrentExportControls() {
+  const annotationId = currentAnnotationId();
+  const currentButtons = [
+    elements.exportCurrentSft,
+    elements.exportCurrentDpo,
+    elements.exportCurrentRm,
+    elements.exportCurrentSftInline,
+    elements.exportCurrentDpoInline,
+    elements.exportCurrentRmInline,
+  ].filter(Boolean);
+  for (const button of currentButtons) {
+    button.disabled = !annotationId;
+    button.title = annotationId
+      ? `Exportar somente a anotacao ${annotationId}`
+      : "Salve uma avaliacao para liberar o export da anotacao atual.";
+  }
+  const hint = annotationId
+    ? `Pronta: ${annotationId}`
+    : "Nenhuma anotacao atual salva nesta sessao.";
+  if (elements.currentExportHint) {
+    elements.currentExportHint.textContent = hint;
+  }
+  if (elements.currentExportHintSidebar) {
+    elements.currentExportHintSidebar.textContent = hint;
+  }
+}
+
 async function init() {
+  hydrateSxsFromSession();
   updateValueTag(elements.scoreGrounding, elements.valGrounding);
   updateValueTag(elements.scoreHelpfulness, elements.valHelpfulness);
   updateValueTag(elements.scoreFactuality, elements.valFactuality);
@@ -280,7 +361,8 @@ async function init() {
     elements.dualPromptGroup.style.display = isDual ? "block" : "none";
   });
 
-  await Promise.all([pollHealth(), loadModels()]);
+  await Promise.all([pollHealth(), loadModels(), loadApprovedRubrics()]);
+  updateCurrentExportControls();
   renderEvaluationHistory();
 
   // Polling a cada 30 segundos para evitar selo travado
@@ -413,6 +495,47 @@ function renderModelSelect(select, models) {
   }
 }
 
+function renderRubricCaseSelect() {
+  elements.rubricCaseSelect.innerHTML = "";
+  const sessionCaseId = Session?.get()?.activeCaseId || "";
+
+  if (!state.approvedRubricCases.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Nenhuma rubrica aprovada";
+    elements.rubricCaseSelect.appendChild(option);
+    elements.scoreWithRubrics.disabled = true;
+    renderRubricScoringEmpty("Aprove uma rubric case no Rubric Lab para pontuar candidatas aqui.");
+    return;
+  }
+
+  for (const item of state.approvedRubricCases) {
+    const option = document.createElement("option");
+    option.value = item.id;
+    const rubricCount = Array.isArray(item.rubrics) ? item.rubrics.length : 0;
+    option.textContent = `${item.category || "Sem categoria"} · ${rubricCount} rubrics`;
+    elements.rubricCaseSelect.appendChild(option);
+  }
+  if (sessionCaseId && state.approvedRubricCases.some((item) => String(item.id) === String(sessionCaseId))) {
+    elements.rubricCaseSelect.value = sessionCaseId;
+  }
+  elements.scoreWithRubrics.disabled = false;
+}
+
+async function loadApprovedRubrics() {
+  try {
+    const query = new URLSearchParams({ status: "approved", limit: "50" });
+    const cases = await fetchJson(`/api/localization/rubric-cases?${query.toString()}`);
+    state.approvedRubricCases = Array.isArray(cases)
+      ? cases.filter((item) => Array.isArray(item.rubrics) && item.rubrics.length)
+      : [];
+  } catch (error) {
+    console.warn("Failed to load approved rubrics:", error);
+    state.approvedRubricCases = [];
+  }
+  renderRubricCaseSelect();
+}
+
 async function loadModels() {
   try {
     const models = await fetchJson("/api/llm/models");
@@ -424,6 +547,7 @@ async function loadModels() {
 
   renderModelSelect(elements.modelSelectA, state.models);
   renderModelSelect(elements.modelSelectB, state.models);
+  renderModelSelect(elements.rubricJudgeModel, state.models);
 
   if (state.models.length > 1) {
     elements.modelSelectB.selectedIndex = 1;
@@ -508,6 +632,149 @@ function renderDiff() {
   elements.diffPanel.style.display = "block";
 }
 
+function selectedRubricCase() {
+  const selectedId = elements.rubricCaseSelect.value;
+  return state.approvedRubricCases.find((item) => String(item.id) === selectedId) || null;
+}
+
+async function applyRubricScoring() {
+  if (!state.candidateResults.a || !state.candidateResults.b) {
+    showNotice("Execute a comparacao antes de aplicar rubricas.");
+    return;
+  }
+
+  const rubricCase = selectedRubricCase();
+  if (!rubricCase || !Array.isArray(rubricCase.rubrics) || !rubricCase.rubrics.length) {
+    showNotice("Selecione uma rubric case aprovada antes de pontuar.");
+    return;
+  }
+
+  const judgeModel = elements.rubricJudgeModel.value;
+  if (!judgeModel) {
+    showNotice("Selecione um judge model para aplicar as rubricas.");
+    return;
+  }
+
+  elements.scoreWithRubrics.disabled = true;
+  elements.scoreWithRubrics.textContent = "Pontuando...";
+  renderRubricScoringEmpty("Judge aplicando rubrics nas duas candidatas...");
+
+  const isDual = elements.toggleDualPrompt.checked;
+  try {
+    const result = await fetchJson("/api/localization/rubrics/score-candidates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        locale: rubricCase.locale || "pt-BR",
+        category: rubricCase.category || "General",
+        chat_history: rubricCase.chat_history || [],
+        prompt: isDual ? elements.userPromptA.value.trim() || elements.userPromptB.value.trim() : elements.userPrompt.value.trim(),
+        golden_response: rubricCase.golden_response || "",
+        rubrics: rubricCase.rubrics,
+        candidate_responses: [
+          {
+            id: "A",
+            label: elements.modelSelectA.value || "Modelo A",
+            response_raw: contentForResult(state.candidateResults.a),
+          },
+          {
+            id: "B",
+            label: elements.modelSelectB.value || "Modelo B",
+            response_raw: contentForResult(state.candidateResults.b),
+          },
+        ],
+        provider: "ollama",
+        model: judgeModel,
+        metadata: {
+          source: "sxs",
+          rubric_case_id: rubricCase.id,
+          rubric_case_status: rubricCase.status,
+          dual_prompt: isDual,
+        },
+      }),
+    });
+
+    state.rubricScoring = {
+      ...result,
+      rubric_case: {
+        id: rubricCase.id,
+        locale: rubricCase.locale,
+        category: rubricCase.category,
+        status: rubricCase.status,
+        rubric_count: rubricCase.rubrics.length,
+      },
+    };
+    syncSessionFromSxs({ activeScoring: state.rubricScoring });
+    renderRubricScoring(result);
+  } catch (error) {
+    state.rubricScoring = null;
+    renderRubricScoringEmpty(`Falha no scoring: ${error.message}`);
+    showNotice(`Erro ao aplicar rubrics: ${error.message}`, { title: "Falha" });
+  } finally {
+    elements.scoreWithRubrics.disabled = !state.approvedRubricCases.length;
+    elements.scoreWithRubrics.textContent = "Aplicar rubricas";
+  }
+}
+
+function renderRubricScoringEmpty(message) {
+  elements.rubricScoreOutput.className = "rubric-score-output";
+  elements.rubricScoreOutput.textContent = message || "Nenhuma pontuacao aplicada nesta comparacao.";
+}
+
+function renderRubricScoring(result) {
+  elements.rubricScoreOutput.innerHTML = "";
+  elements.rubricScoreOutput.className = "rubric-score-output scored";
+
+  if (!result?.success) {
+    const failure = document.createElement("p");
+    failure.className = "subtle";
+    failure.textContent = result?.message || "Scoring nao retornou resultado valido.";
+    elements.rubricScoreOutput.appendChild(failure);
+    return;
+  }
+
+  const preference = result.preference || {};
+  const summary = document.createElement("div");
+  summary.className = "rubric-score-summary";
+  const preferenceLabel = document.createElement("strong");
+  preferenceLabel.textContent = `Judge prefere: ${preference.chosen_candidate_id || "empate"}`;
+  const marginLabel = document.createElement("span");
+  marginLabel.textContent = `Margem: ${preference.margin ?? "n/d"}`;
+  summary.append(preferenceLabel, marginLabel);
+  elements.rubricScoreOutput.appendChild(summary);
+
+  for (const candidate of result.candidate_scores || []) {
+    const card = document.createElement("div");
+    card.className = "rubric-score-card";
+    const header = document.createElement("div");
+    header.className = "candidate-score-card__header";
+    const title = document.createElement("h4");
+    title.textContent = candidate.candidate_label || `Candidate ${candidate.candidate_id}`;
+    const total = document.createElement("span");
+    total.className = "candidate-score-total";
+    total.textContent = String(candidate.total_score);
+    header.append(title, total);
+    card.appendChild(header);
+
+    const rows = document.createElement("div");
+    rows.className = "candidate-score-breakdown";
+    for (const score of candidate.rubric_scores || []) {
+      const row = document.createElement("div");
+      row.className = "candidate-score-row";
+      const rubricTitle = document.createElement("span");
+      rubricTitle.textContent = score.rubric_title || `Rubric ${score.rubric_index}`;
+      const points = document.createElement("strong");
+      points.textContent = `${score.points > 0 ? "+" : ""}${score.points}`;
+      const rationale = document.createElement("p");
+      rationale.textContent = score.rationale || score.judgment || "";
+      row.append(rubricTitle, points, rationale);
+      rows.appendChild(row);
+    }
+    card.appendChild(rows);
+    elements.rubricScoreOutput.appendChild(card);
+  }
+}
+
 function renderEvaluationHistory() {
   elements.evalHistory.innerHTML = "";
 
@@ -561,6 +828,8 @@ elements.sxsForm.addEventListener("submit", async (event) => {
   state.activeBlindMode = elements.toggleBlind.checked;
   state.resultA = null;
   state.resultB = null;
+  state.rubricScoring = null;
+  renderRubricScoringEmpty("Execute a comparacao e aplique uma rubric aprovada para gerar score ponderado.");
   elements.annotationPanel.style.display = "none";
   elements.outputA.value = "Gerando resposta...";
   elements.outputB.value = "Gerando resposta...";
@@ -720,6 +989,7 @@ async function submitSelection(chosenKey) {
       selected_display_slot: chosen,
       display_slot_a_candidate: candidateKeyForDisplay("a").toUpperCase(),
       display_slot_b_candidate: candidateKeyForDisplay("b").toUpperCase(),
+      rubric_scoring: state.rubricScoring,
     },
     tags: Array.from(document.querySelectorAll(".flag-chip input:checked")).map((input) => input.value),
   };
@@ -727,11 +997,13 @@ async function submitSelection(chosenKey) {
   revealPresentationLabels();
 
   try {
-    await fetchJson("/api/annotations/sxs", {
+    const saveResult = await fetchJson("/api/annotations/sxs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    state.lastSavedAnnotationId = saveResult?.annotation?.id || null;
+    syncSessionFromSxs({ activeAnnotationId: state.lastSavedAnnotationId });
 
     state.evaluations.unshift({
       studyLabel: payload.study_label,
@@ -752,12 +1024,17 @@ async function submitSelection(chosenKey) {
       actions: [
         {
           label: "Exportar DPO",
-          onClick: () => exportAnnotations("dpo"),
+          onClick: () => exportAnnotations("dpo", { currentOnly: true }),
         },
         {
           label: "Exportar SFT",
           kind: "secondary",
-          onClick: () => exportAnnotations("sft"),
+          onClick: () => exportAnnotations("sft", { currentOnly: true }),
+        },
+        {
+          label: "Exportar RM",
+          kind: "secondary",
+          onClick: () => exportAnnotations("rm", { currentOnly: true }),
         },
       ],
     });
@@ -766,24 +1043,48 @@ async function submitSelection(chosenKey) {
   }
 }
 
-async function exportAnnotations(format) {
-  const endpoint = format === "dpo"
-    ? "/api/annotations/sxs/export-dpo-jsonl"
-    : "/api/annotations/sxs/export-jsonl";
+async function exportAnnotations(format, options = {}) {
+  const endpointByFormat = {
+    dpo: "/api/annotations/sxs/export-dpo-jsonl",
+    rm: "/api/annotations/sxs/export-rm-jsonl",
+    sft: "/api/annotations/sxs/export-jsonl",
+  };
+  const endpoint = endpointByFormat[format] || endpointByFormat.sft;
+  const body = { limit: 50000 };
+  const activeAnnotationId = currentAnnotationId();
+  if (options.currentOnly && !activeAnnotationId) {
+    throw new Error("Export da avaliacao atual bloqueado: annotation_id ainda nao foi confirmado pelo backend.");
+  }
+  if (options.currentOnly && activeAnnotationId) {
+    body.annotation_id = activeAnnotationId;
+  }
+  console.info("[SxS] export request audit", {
+    format,
+    currentOnly: Boolean(options.currentOnly),
+    annotationId: body.annotation_id || null,
+    body,
+  });
   const result = await fetchJson(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ limit: 50000 }),
+    body: JSON.stringify(body),
+  });
+  console.info("[SxS] export result audit", {
+    format,
+    annotationId: body.annotation_id || null,
+    records: result.records,
+    skipped: result.skipped,
+    result,
   });
   renderExportResult(result);
   revealExportPanel();
   const filename = fileNameFromPath(result.path);
   const modalLines = [
-    `Export ${format.toUpperCase()} concluido.`,
+    `Export ${format.toUpperCase()} concluido${options.currentOnly ? " para a avaliacao atual" : " para o dataset completo"}.`,
     "",
     `Registros: ${result.records ?? 0}`,
   ];
-  if (format === "dpo") {
+  if (format === "dpo" || format === "rm") {
     modalLines.push(`Pulados: ${result.skipped ?? 0}`);
   }
   modalLines.push(`Arquivo: ${filename || "arquivo gerado"}`);
@@ -798,6 +1099,8 @@ async function exportAnnotations(format) {
 function renderExportResult(result) {
   const lines = [
     result.format ? `Formato: ${String(result.format).toUpperCase()}` : null,
+    result.annotation_id ? `Annotation: ${result.annotation_id}` : null,
+    result.filtered_rows !== undefined ? `Linhas filtradas: ${result.filtered_rows}` : null,
     result.records !== undefined ? `Registros: ${result.records}` : null,
     result.skipped !== undefined ? `Pulados: ${result.skipped}` : null,
     result.path ? `Caminho: ${result.path}` : null,
@@ -879,6 +1182,34 @@ elements.exportDpo?.addEventListener("click", () => {
   });
 });
 
+elements.exportRm?.addEventListener("click", () => {
+  exportAnnotations("rm").catch((error) => {
+    renderExportResult({ error: error.message });
+    showNotice(`Erro no export RM: ${error.message}`, { title: "Falha" });
+  });
+});
+
+elements.exportCurrentSft?.addEventListener("click", () => {
+  exportAnnotations("sft", { currentOnly: true }).catch((error) => {
+    renderExportResult({ error: error.message });
+    showNotice(`Erro no export SFT atual: ${error.message}`, { title: "Falha" });
+  });
+});
+
+elements.exportCurrentDpo?.addEventListener("click", () => {
+  exportAnnotations("dpo", { currentOnly: true }).catch((error) => {
+    renderExportResult({ error: error.message });
+    showNotice(`Erro no export DPO atual: ${error.message}`, { title: "Falha" });
+  });
+});
+
+elements.exportCurrentRm?.addEventListener("click", () => {
+  exportAnnotations("rm", { currentOnly: true }).catch((error) => {
+    renderExportResult({ error: error.message });
+    showNotice(`Erro no export RM atual: ${error.message}`, { title: "Falha" });
+  });
+});
+
 elements.exportSftInline?.addEventListener("click", () => {
   exportAnnotations("sft").catch((error) => {
     renderExportResult({ error: error.message });
@@ -891,6 +1222,38 @@ elements.exportDpoInline?.addEventListener("click", () => {
     renderExportResult({ error: error.message });
     showNotice(`Erro no export DPO: ${error.message}`, { title: "Falha" });
   });
+});
+
+elements.exportRmInline?.addEventListener("click", () => {
+  exportAnnotations("rm").catch((error) => {
+    renderExportResult({ error: error.message });
+    showNotice(`Erro no export RM: ${error.message}`, { title: "Falha" });
+  });
+});
+
+elements.exportCurrentSftInline?.addEventListener("click", () => {
+  exportAnnotations("sft", { currentOnly: true }).catch((error) => {
+    renderExportResult({ error: error.message });
+    showNotice(`Erro no export SFT atual: ${error.message}`, { title: "Falha" });
+  });
+});
+
+elements.exportCurrentDpoInline?.addEventListener("click", () => {
+  exportAnnotations("dpo", { currentOnly: true }).catch((error) => {
+    renderExportResult({ error: error.message });
+    showNotice(`Erro no export DPO atual: ${error.message}`, { title: "Falha" });
+  });
+});
+
+elements.exportCurrentRmInline?.addEventListener("click", () => {
+  exportAnnotations("rm", { currentOnly: true }).catch((error) => {
+    renderExportResult({ error: error.message });
+    showNotice(`Erro no export RM atual: ${error.message}`, { title: "Falha" });
+  });
+});
+
+elements.scoreWithRubrics?.addEventListener("click", () => {
+  applyRubricScoring();
 });
 
 init();

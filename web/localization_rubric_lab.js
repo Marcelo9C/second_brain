@@ -14,6 +14,7 @@ const ACCEPTED_RUBRIC_DIMENSIONS = new Set([
 ]);
 
 const CANDIDATE_IDS = ["A", "B", "C", "D"];
+const Session = window.Session;
 
 const state = {
   templates: [],
@@ -23,7 +24,9 @@ const state = {
   models: [],
   rubricRuns: [],
   modelsLoading: false,
+  templateLoading: false,
   providerModelRequestId: 0,
+  templateTransitionRequestId: 0,
   selectedCaseId: null,
   currentCaseMetadata: {},
   lastGenerationMetadata: null,
@@ -312,14 +315,24 @@ function recommendationAllowsRubricGeneration() {
     return true;
   }
   const source = state.goldenSource || {};
+  const selectedId = selectedCandidateId();
+  const selectedText = selectedCandidateText();
+  const goldenText = elements.goldenResponse.value.trim();
+  const goldenMatchesSelected = Boolean(
+    selectedText &&
+      goldenText &&
+      (goldenText === selectedText || source.human_editable || source.human_edited),
+  );
   return Boolean(
-    elements.goldenResponse.value.trim() &&
-      selectedCandidateId() &&
+    goldenText &&
+      selectedId &&
+      selectedText &&
       (
         (state.candidateRecommendation.status === "ready" &&
           state.candidateRecommendation.appliedToGolden &&
           source.mode === "from_recommended_candidate") ||
-        source.mode === "from_selected_candidate"
+        source.mode === "from_selected_candidate" ||
+        goldenMatchesSelected
       ),
   );
 }
@@ -341,6 +354,72 @@ function candidateResponsesFromInputs() {
       source: "manual",
     }))
     .filter((candidate) => candidate.response_raw);
+}
+
+function syncSessionFromRubricLab(patch = {}) {
+  if (!Session) {
+    return null;
+  }
+  const validation = validateRubrics();
+  const session = Session.patch({
+    activeCaseId: state.selectedCaseId || null,
+    activeRunId: state.lastGenerationMetadata?.run_id || null,
+    activeLocale: elements.localeSelect.value || null,
+    activeCategory: elements.categorySelect.value || null,
+    activeCaseStatus: elements.statusSelect.value || null,
+    activeRubrics: validation.rubrics || [],
+    activeCandidates: candidateResponsesFromInputs(),
+    activeGoldenSource: state.goldenSource || null,
+    activeScoring: state.candidateScoring?.result || null,
+    ...patch,
+  });
+  console.info("[Session] sync", {
+    source: "rubric_lab",
+    activeCaseId: session.activeCaseId,
+    activeRunId: session.activeRunId,
+    activeCaseStatus: session.activeCaseStatus,
+    activeRubrics: session.activeRubrics.length,
+    activeCandidates: session.activeCandidates.length,
+  });
+  return session;
+}
+
+async function hydrateRubricLabFromSession() {
+  if (!Session) {
+    return false;
+  }
+  const session = Session.hydrate();
+  if (session.activeLocale) {
+    elements.localeSelect.value = session.activeLocale;
+  }
+  if (session.activeCategory) {
+    elements.categorySelect.value = session.activeCategory;
+    elements.caseCategory.value = session.activeCategory;
+  }
+  if (!currentTemplateMatchesSelection()) {
+    await loadTemplate();
+  }
+  if (!session.activeCaseId) {
+    return false;
+  }
+  try {
+    const record = await fetchJson(`/api/localization/rubric-cases/${session.activeCaseId}`);
+    fillCase(record, { syncSession: false });
+    syncSessionFromRubricLab({
+      activeCaseId: record.id,
+      activeCaseStatus: record.status || null,
+      activeRubrics: Array.isArray(record.rubrics) ? record.rubrics : [],
+    });
+    updateActionStates(state.lastValidationReport);
+    return true;
+  } catch (error) {
+    console.warn("[Session] sync failed", {
+      source: "rubric_lab",
+      activeCaseId: session.activeCaseId,
+      error: error.message,
+    });
+    return false;
+  }
 }
 
 function candidatePayloadFields() {
@@ -408,6 +487,29 @@ function candidateGenerationBlockReason() {
   }
   if (!recommendationAllowsRubricGeneration()) {
     return "Analise candidatas com IA ou confirme uma candidata como base da Golden antes de gerar rubrics.";
+  }
+  return null;
+}
+
+function rubricGenerationBlockReason() {
+  if (state.modelsLoading) {
+    return "Aguarde o carregamento dos modelos.";
+  }
+  if (state.templateLoading) {
+    return "Aguarde o carregamento do template.";
+  }
+  if (state.candidateRecommendation.status === "running") {
+    return "Analise de candidatas em andamento.";
+  }
+  const candidateReason = candidateGenerationBlockReason();
+  if (candidateReason) {
+    return candidateReason;
+  }
+  if (!elements.prompt.value.trim()) {
+    return "Preencha o prompt antes de gerar rubrics.";
+  }
+  if (!elements.goldenResponse.value.trim()) {
+    return "Preencha a Golden Response antes de gerar rubrics.";
   }
   return null;
 }
@@ -825,11 +927,25 @@ function renderCandidateScoring() {
 
   const result = scoring.result;
   if (!result) {
+    const reason = candidateScoringBlockReason();
+    if (reason) {
+      elements.candidateScoringStatus.className = "badge warning";
+      elements.candidateScoringStatus.textContent = "blocked";
+      setStateSummary(
+        elements.candidateScoringSummary,
+        "warning",
+        "Scoring indisponivel",
+        reason,
+      );
+      return;
+    }
+    elements.candidateScoringStatus.className = "badge ok";
+    elements.candidateScoringStatus.textContent = "ready";
     setStateSummary(
       elements.candidateScoringSummary,
-      "neutral",
-      "Nenhum scoring",
-      "Execute a pontuacao depois de carregar candidatas e rubrics validas.",
+      "ok",
+      "Pronto para pontuar",
+      "Candidatas e rubrics estao validas. Clique em Pontuar com rubrics para gerar o score ponderado.",
     );
     return;
   }
@@ -1047,6 +1163,23 @@ function renderTemplateSummary() {
     `${state.currentTemplate.template_name} | ${state.currentTemplate.locale} | ` +
     `${state.currentTemplate.category} | ${state.currentTemplate.rubrics.length} slots de scaffold. ` +
     "Template carregado; preencha o caso real e revise antes de aprovar.";
+}
+
+function currentTemplateMatchesSelection() {
+  if (!state.currentTemplate) {
+    return false;
+  }
+  return (
+    state.currentTemplate.locale === elements.localeSelect.value &&
+    state.currentTemplate.category === elements.categorySelect.value
+  );
+}
+
+async function ensureCurrentTemplate() {
+  if (!currentTemplateMatchesSelection()) {
+    await loadTemplate();
+  }
+  return state.currentTemplate;
 }
 
 function renderCaseState(record = null) {
@@ -1499,6 +1632,9 @@ function assertGenerationMatch(metadata) {
 }
 
 function assertCanUseStatus(status) {
+  if (status === "approved" && !["reviewed", "approved"].includes(elements.statusSelect.value)) {
+    throw new Error("Marque e salve como reviewed antes de aprovar.");
+  }
   const contractState = editorContractState();
   if (
     (status === "reviewed" || status === "approved" || status === "exported") &&
@@ -1517,7 +1653,7 @@ function assertCanUseStatus(status) {
   }
 }
 
-function fillCase(record) {
+function fillCase(record, options = {}) {
   state.selectedCaseId = record?.id || null;
   state.currentCaseMetadata = record?.metadata && typeof record.metadata === "object"
     ? record.metadata
@@ -1590,6 +1726,15 @@ function fillCase(record) {
     : elements.rubricsEditor.value;
   renderCaseState(record);
   renderValidation();
+  if (options.syncSession !== false) {
+    syncSessionFromRubricLab({
+      activeCaseId: state.selectedCaseId,
+      activeCaseStatus: elements.statusSelect.value,
+      activeRubrics: Array.isArray(record?.rubrics) ? record.rubrics : [],
+      activeRunId: state.lastGenerationMetadata?.run_id || null,
+    });
+    updateActionStates(state.lastValidationReport);
+  }
 }
 
 function resetCase() {
@@ -1619,6 +1764,98 @@ function resetCase() {
   elements.rubricsEditor.value = "[]";
   renderCaseState();
   renderValidation();
+  Session?.patch({
+    activeCaseId: null,
+    activeRunId: null,
+    activeCaseStatus: "draft",
+    activeRubrics: [],
+    activeCandidates: [],
+    activeGoldenSource: { mode: "manual", candidate_id: null },
+    activeScoring: null,
+    activeLocale: elements.localeSelect.value || null,
+    activeCategory: elements.categorySelect.value || null,
+  });
+}
+
+async function transitionTemplateSelection(reason = "template_selection_changed") {
+  const locale = elements.localeSelect.value;
+  const category = elements.categorySelect.value;
+  const requestId = ++state.templateTransitionRequestId;
+
+  state.templateLoading = true;
+  Session?.patch({
+    activeCaseId: null,
+    activeRunId: null,
+    activeCaseStatus: "draft",
+    activeRubrics: [],
+    activeCandidates: [],
+    activeGoldenSource: { mode: "manual", candidate_id: null },
+    activeScoring: null,
+    activeLocale: locale,
+    activeCategory: category,
+  });
+  state.currentTemplate = null;
+  state.selectedCaseId = null;
+  state.currentCaseMetadata = {};
+  state.rubricRuns = [];
+  state.lastGenerationMetadata = null;
+  state.lastRawModelResponse = null;
+  state.lastValidationReport = null;
+  state.editorArtifactMetadata = null;
+  state.humanQualityReviewed = false;
+  state.goldenSource = { mode: "manual", candidate_id: null };
+  state.goldenDraftFromRecommendation = false;
+
+  elements.statusSelect.value = "draft";
+  elements.caseCategory.value = category;
+  elements.chatHistory.value = "";
+  elements.prompt.value = "";
+  setResponseMode("single");
+  setCandidateResponses();
+  setSelectedCandidate(null);
+  elements.responseRaw.value = "";
+  elements.goldenResponse.value = "";
+  elements.evaluatorNotes.value = "";
+  elements.tagsInput.value = "";
+  elements.rubricsEditor.value = "[]";
+  elements.aiWarning.textContent = "Carregando template da selecao atual.";
+  elements.validationOutput.hidden = false;
+  elements.validationOutput.textContent =
+    "Categoria/locale alterado: case, geracao, editor, candidatas e scoring antigos foram invalidados.";
+
+  resetCandidateRecommendation(reason);
+  resetCandidateScoring();
+  renderCaseState();
+  renderGenerationDiagnostics();
+  renderRawModelResponse();
+
+  renderTemplateSummary();
+  renderValidation();
+  updateGenerateButtonState();
+  updateScoreCandidatesButtonState();
+
+  try {
+    const template = await fetchJson(`/api/localization/templates/${locale}/${category}`);
+    if (requestId !== state.templateTransitionRequestId) {
+      return;
+    }
+    applyTemplate(template);
+    elements.aiWarning.textContent = "Template carregado. Preencha o caso antes de gerar rubrics.";
+  } catch (error) {
+    if (requestId !== state.templateTransitionRequestId) {
+      return;
+    }
+    state.currentTemplate = null;
+    elements.templateSummary.textContent = error.message;
+    elements.validationOutput.textContent = error.message;
+    throw error;
+  } finally {
+    if (requestId === state.templateTransitionRequestId) {
+      state.templateLoading = false;
+      updateGenerateButtonState();
+      updateScoreCandidatesButtonState();
+    }
+  }
 }
 
 function buildPayload(statusOverride = null) {
@@ -1814,7 +2051,13 @@ function renderModelSelect() {
 async function loadTemplate() {
   const locale = elements.localeSelect.value;
   const category = elements.categorySelect.value;
-  state.currentTemplate = await fetchJson(`/api/localization/templates/${locale}/${category}`);
+  const template = await fetchJson(`/api/localization/templates/${locale}/${category}`);
+  applyTemplate(template);
+}
+
+function applyTemplate(template) {
+  state.currentTemplate = template;
+  const category = template?.category || elements.categorySelect.value;
   elements.caseCategory.value = category;
   state.lastGenerationMetadata = null;
   state.lastRawModelResponse = null;
@@ -2094,6 +2337,26 @@ async function saveCase(statusOverride = null) {
     : "/api/localization/rubric-cases";
   const method = state.selectedCaseId ? "PATCH" : "POST";
 
+  console.info("[RubricLab] save case payload audit", {
+    method,
+    path,
+    caseId: state.selectedCaseId,
+    statusSent: payload.status,
+    payload,
+    locale: payload.locale,
+    category: payload.category,
+    rubricsLength: Array.isArray(payload.rubrics) ? payload.rubrics.length : null,
+    structureStatus: payload.metadata?.validation_report?.structureValidation?.status || null,
+    formatStatus: payload.metadata?.validation_report?.formatValidation?.status || null,
+    qualityStatus: payload.metadata?.validation_report?.qualityValidation?.status || null,
+    approvalStatus: payload.metadata?.validation_report?.approvalReadiness?.status || null,
+    reviewedFlag: payload.metadata?.human_quality_reviewed || false,
+    approvedFlag: payload.status === "approved",
+    editorArtifactMetadata: state.editorArtifactMetadata || null,
+    currentTemplateCategory: state.currentTemplate?.category || null,
+    currentTemplateLocale: state.currentTemplate?.locale || null,
+  });
+
   const response = await fetchJson(path, {
     method,
     headers: { "Content-Type": "application/json" },
@@ -2101,6 +2364,53 @@ async function saveCase(statusOverride = null) {
   });
   const record = response.rubric_case || response;
   fillCase(record);
+  syncSessionFromRubricLab({
+    activeCaseId: record.id || state.selectedCaseId,
+    activeCaseStatus: record.status || payload.status || null,
+    activeRubrics: Array.isArray(record.rubrics) ? record.rubrics : validateRubrics().rubrics || [],
+  });
+  await loadCases();
+}
+
+async function updateCaseStatus(status) {
+  if (!state.selectedCaseId) {
+    throw new Error("Salve o draft antes de alterar status.");
+  }
+  if (status === "approved" && !["reviewed", "approved"].includes(elements.statusSelect.value)) {
+    throw new Error("Marque e salve como reviewed antes de aprovar.");
+  }
+
+  const validation = renderValidation();
+  console.info("[RubricLab] status transition audit", {
+    caseId: state.selectedCaseId,
+    requestedStatus: status,
+    currentStatus: elements.statusSelect.value,
+    locale: elements.localeSelect.value,
+    category: elements.categorySelect.value,
+    rubricsLength: Array.isArray(validation.rubrics) ? validation.rubrics.length : null,
+    structureStatus: validation.report?.structureValidation?.status || null,
+    formatStatus: validation.report?.formatValidation?.status || null,
+    qualityStatus: validation.report?.qualityValidation?.status || null,
+    approvalStatus: validation.report?.approvalReadiness?.status || null,
+    editorArtifactMetadata: state.editorArtifactMetadata || null,
+    currentTemplateCategory: state.currentTemplate?.category || null,
+    currentTemplateLocale: state.currentTemplate?.locale || null,
+  });
+
+  const response = await fetchJson(`/api/localization/rubric-cases/${state.selectedCaseId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  const patched = response.rubric_case || response;
+  const record = await fetchJson(`/api/localization/rubric-cases/${patched.id || state.selectedCaseId}`);
+  fillCase(record, { syncSession: false });
+  syncSessionFromRubricLab({
+    activeCaseId: record.id || state.selectedCaseId,
+    activeCaseStatus: record.status || status,
+    activeRubrics: Array.isArray(record.rubrics) ? record.rubrics : validateRubrics().rubrics || [],
+  });
+  updateActionStates(state.lastValidationReport);
   await loadCases();
 }
 
@@ -2400,63 +2710,73 @@ async function applyRubricRun(runId) {
 }
 
 async function generateRubrics() {
-  if (state.modelsLoading) {
-    throw new Error("Aguarde o carregamento dos modelos do provider selecionado.");
-  }
-
-  syncEvaluatedResponse();
-  const blockReason = candidateGenerationBlockReason();
-  if (blockReason) {
-    renderCandidateSelectorState();
-    updateGenerateButtonState();
-    throw new Error(blockReason);
-  }
-
-  if (!state.currentTemplate) {
-    await loadTemplate();
-  }
-
-  const providerRequested = elements.rubricProviderSelect.value || undefined;
-  const modelRequested = elements.rubricModelSelect.value || null;
-  const candidatePayload = candidatePayloadFields();
-  const validation = renderValidation();
-  const baseTemplate = state.currentTemplate?.rubrics || validation.rubrics;
-  if (!baseTemplate) {
-    throw new Error("Carregue um template válido antes de gerar rubrics.");
-  }
-
   elements.generateRubrics.disabled = true;
   elements.generateRubrics.classList.add("generating");
   elements.generateRubrics.setAttribute("aria-busy", "true");
-  elements.generateRubrics.textContent = "Gerando rubrics...";
-  elements.aiWarning.textContent = "Gerando rubrics via IA. Revise antes de aprovar.";
+  elements.generateRubrics.textContent = "Preparando geracao...";
+  elements.aiWarning.textContent = "Preparando dados do caso para gerar rubrics.";
 
   try {
+    syncEvaluatedResponse();
+    const blockReason = rubricGenerationBlockReason();
+    if (blockReason) {
+      renderCandidateSelectorState();
+      throw new Error(blockReason);
+    }
+
+    if (!currentTemplateMatchesSelection()) {
+      elements.aiWarning.textContent = "Carregando template da categoria antes de gerar rubrics.";
+      await ensureCurrentTemplate();
+    }
+
+    const providerRequested = elements.rubricProviderSelect.value || undefined;
+    const modelRequested = elements.rubricModelSelect.value || null;
+    const candidatePayload = candidatePayloadFields();
+    const validation = renderValidation();
+    const baseTemplate = state.currentTemplate?.rubrics || validation.rubrics;
+    if (!baseTemplate) {
+      throw new Error("Carregue um template valido antes de gerar rubrics.");
+    }
+
+    elements.generateRubrics.textContent = "Gerando rubrics...";
+    elements.aiWarning.textContent = "Gerando rubrics via IA. Revise antes de aprovar.";
+
+    const payload = {
+      case_id: state.selectedCaseId,
+      locale: elements.localeSelect.value,
+      category: elements.categorySelect.value,
+      chat_history: parseChatHistory(),
+      prompt: elements.prompt.value.trim() || null,
+      response_raw: candidatePayload.response_raw,
+      golden_response: elements.goldenResponse.value.trim() || null,
+      base_template: baseTemplate,
+      provider: providerRequested,
+      model: modelRequested,
+      candidate_responses: candidatePayload.candidate_responses,
+      selected_candidate_id: candidatePayload.selected_candidate_id,
+      metadata: {
+        candidate_responses: candidatePayload.candidate_responses,
+        selected_candidate_id: candidatePayload.selected_candidate_id,
+        response_raw_resolution: candidatePayload.response_raw_resolution,
+        golden_source: state.goldenSource || { mode: "manual", candidate_id: null },
+        golden_recommendation: goldenRecommendationMetadata(),
+      },
+    };
+
+    console.info("[RubricLab] generate payload contract audit", {
+      categorySelect: elements.categorySelect.value,
+      localeSelect: elements.localeSelect.value,
+      currentTemplateCategory: state.currentTemplate?.category || null,
+      currentTemplateContract: state.currentTemplate?.contract || null,
+      payloadCategory: payload.category,
+      payloadLocale: payload.locale,
+      payloadContract: payload.contract || null,
+    });
+
     const result = await fetchJson("/api/localization/rubrics/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        case_id: state.selectedCaseId,
-        locale: elements.localeSelect.value,
-        category: elements.categorySelect.value,
-        chat_history: parseChatHistory(),
-        prompt: elements.prompt.value.trim() || null,
-        response_raw: candidatePayload.response_raw,
-        golden_response: elements.goldenResponse.value.trim() || null,
-        base_template: baseTemplate,
-        contract: state.currentTemplate?.contract || null,
-        provider: providerRequested,
-        model: modelRequested,
-        candidate_responses: candidatePayload.candidate_responses,
-        selected_candidate_id: candidatePayload.selected_candidate_id,
-        metadata: {
-          candidate_responses: candidatePayload.candidate_responses,
-          selected_candidate_id: candidatePayload.selected_candidate_id,
-          response_raw_resolution: candidatePayload.response_raw_resolution,
-          golden_source: state.goldenSource || { mode: "manual", candidate_id: null },
-          golden_recommendation: goldenRecommendationMetadata(),
-        },
-      }),
+      body: JSON.stringify(payload),
     });
 
     state.lastGenerationMetadata = {
@@ -2502,6 +2822,12 @@ async function generateRubrics() {
     elements.rubricsEditor.value = JSON.stringify(result.rubrics, null, 2);
     state.editorArtifactMetadata = templateSnapshotFromCurrent();
     elements.statusSelect.value = "draft";
+    syncSessionFromRubricLab({
+      activeCaseId: state.selectedCaseId,
+      activeRunId: state.lastGenerationMetadata.run_id || null,
+      activeCaseStatus: "generated",
+      activeRubrics: Array.isArray(result.rubrics) ? result.rubrics : [],
+    });
     elements.aiWarning.textContent =
       result.warning || "Rubrics geradas por IA devem ser revisadas antes da aprovação.";
     renderValidation();
@@ -2662,13 +2988,11 @@ async function scoreCandidatesWithRubrics() {
         prompt: elements.prompt.value.trim() || null,
         golden_response: elements.goldenResponse.value.trim() || null,
         rubrics: validation.rubrics,
-        contract: contractState.editorContract || state.currentTemplate?.contract || null,
         candidate_responses: candidateResponses,
         provider: providerRequested,
         model: modelRequested,
         metadata: {
           source: "localization_rubric_lab",
-          template_contract: contractState.editorContract || state.currentTemplate?.contract || null,
           current_template_contract: state.currentTemplate?.contract || null,
         },
       }),
@@ -2691,6 +3015,7 @@ async function scoreCandidatesWithRubrics() {
       result,
       error: "",
     };
+    syncSessionFromRubricLab({ activeScoring: result });
     const chosen = result.preference?.chosen_candidate_id;
     if (chosen && candidateText(chosen)) {
       setSelectedCandidate(chosen);
@@ -2849,8 +3174,11 @@ function validateFormat(rubrics, structureValidation, contract = null) {
     const dimension = rubric.Rubric_dimensions;
     if (typeof dimension !== "string" || !dimension.trim()) {
       issues.push(`Item ${index + 1}: Rubric_dimensions deve ser texto.`);
-    } else if (!ACCEPTED_RUBRIC_DIMENSIONS.has(dimension)) {
-      issues.push(`Item ${index + 1}: Rubric_dimensions nao aceito.`);
+    } else if (!dimensionAllowedByContract(dimension, contract)) {
+      const allowed = contract?.allowed_dimensions?.length
+        ? contract.allowed_dimensions.join(", ")
+        : Array.from(ACCEPTED_RUBRIC_DIMENSIONS).join(", ");
+      issues.push(`Item ${index + 1}: Rubric_dimensions nao aceito. Use: ${allowed}.`);
     }
 
     const title = rubric.Rubric_title;
@@ -2948,6 +3276,19 @@ function validateApprovalReadiness(
   qualityValidation,
   contractState = editorContractState(),
 ) {
+  if (!state.selectedCaseId) {
+    return layer("blocked", "Aprovacao bloqueada: salve o draft antes de aprovar.", true, {
+      missing_case_id: true,
+    });
+  }
+
+  if (!["reviewed", "approved"].includes(elements.statusSelect.value)) {
+    return layer("blocked", "Aprovacao bloqueada: marque como reviewed antes de aprovar.", true, {
+      status_required: "reviewed",
+      current_status: elements.statusSelect.value,
+    });
+  }
+
   if (contractState.hasContractMismatch) {
     return layer("blocked", contractState.message, true, {
       contract_mismatch: true,
@@ -3023,27 +3364,42 @@ function requestBackendQualityHeuristics(result) {
     return;
   }
 
+  const payload = {
+    case_id: state.selectedCaseId,
+    locale: elements.localeSelect.value,
+    category: elements.categorySelect.value,
+    prompt: elements.prompt.value.trim() || null,
+    response_raw: candidatePayload.response_raw,
+    golden_response: elements.goldenResponse.value.trim() || null,
+    rubrics: result.rubrics,
+    metadata: {
+      human_quality_reviewed: state.humanQualityReviewed,
+      candidate_responses: candidatePayload.candidate_responses || [],
+      selected_candidate_id: candidatePayload.selected_candidate_id,
+      response_raw_resolution: candidatePayload.response_raw_resolution,
+      golden_source: state.goldenSource || { mode: "manual", candidate_id: null },
+      current_template_contract: state.currentTemplate?.contract || null,
+      contract_mismatch: contractState.hasContractMismatch,
+    },
+  };
+
+  console.info("[RubricLab] validate payload audit", {
+    payload,
+    caseId: payload.case_id,
+    locale: payload.locale,
+    category: payload.category,
+    rubricsLength: Array.isArray(payload.rubrics) ? payload.rubrics.length : null,
+    selectedCandidateId: candidatePayload.selected_candidate_id,
+    goldenSource: state.goldenSource || null,
+    editorArtifactMetadata: state.editorArtifactMetadata || null,
+    currentTemplateCategory: state.currentTemplate?.category || null,
+    currentTemplateLocale: state.currentTemplate?.locale || null,
+  });
+
   fetchJson("/api/localization/rubrics/validate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      locale: elements.localeSelect.value,
-      category: elements.categorySelect.value,
-      prompt: elements.prompt.value.trim() || null,
-      response_raw: candidatePayload.response_raw,
-      golden_response: elements.goldenResponse.value.trim() || null,
-      rubrics: result.rubrics,
-      contract: contractState.editorContract || state.currentTemplate?.contract || null,
-      metadata: {
-        human_quality_reviewed: state.humanQualityReviewed,
-        candidate_responses: candidatePayload.candidate_responses || [],
-        selected_candidate_id: candidatePayload.selected_candidate_id,
-        response_raw_resolution: candidatePayload.response_raw_resolution,
-        template_contract: contractState.editorContract || state.currentTemplate?.contract || null,
-        current_template_contract: state.currentTemplate?.contract || null,
-        contract_mismatch: contractState.hasContractMismatch,
-      },
-    }),
+    body: JSON.stringify(payload),
   })
     .then((report) => {
       if (requestId !== state.backendValidationRequestId) {
@@ -3055,11 +3411,24 @@ function requestBackendQualityHeuristics(result) {
       };
       renderGenerationDiagnostics(state.lastGenerationMetadata);
       renderQualityHeuristics(report.qualityHeuristics);
+      syncSessionFromRubricLab({
+        activeCaseStatus: ["reviewed", "approved"].includes(elements.statusSelect.value)
+          ? elements.statusSelect.value
+          : "validated",
+        activeRubrics: result.rubrics || [],
+      });
+      updateActionStates(state.lastValidationReport);
     })
-    .catch(() => {
+    .catch((error) => {
       if (requestId !== state.backendValidationRequestId) {
         return;
       }
+      console.warn("[RubricLab] validate request failed", {
+        status: error.status,
+        message: error.message,
+        detail: error.detail,
+        payload: error.payload,
+      });
       renderQualityHeuristics();
     });
 }
@@ -3335,20 +3704,10 @@ function formatQualitySignal(value) {
 function updateGenerateButtonState() {
   const isCandidateMode = responseMode() === "candidates";
   const rubricsBlockedForCandidates = candidateRubricsBlocked();
-  const blockReason = candidateGenerationBlockReason();
-  const missingPrompt = !elements.prompt.value.trim();
-  const missingGolden = !elements.goldenResponse.value.trim();
-  const missingTemplate = !state.currentTemplate;
+  const blockReason = rubricGenerationBlockReason();
+  const templateOutOfSync = !currentTemplateMatchesSelection();
   const recommendationRunning = state.candidateRecommendation.status === "running";
-  const blocked = Boolean(
-    state.modelsLoading ||
-      recommendationRunning ||
-      rubricsBlockedForCandidates ||
-      blockReason ||
-      missingPrompt ||
-      missingGolden ||
-      missingTemplate,
-  );
+  const blocked = Boolean(blockReason);
 
   if (elements.editorToolbar) {
     elements.editorToolbar.hidden = rubricsBlockedForCandidates;
@@ -3366,12 +3725,8 @@ function updateGenerateButtonState() {
     elements.generateRubrics.title = candidateRubricsContainmentMessage();
   } else if (blockReason) {
     elements.generateRubrics.title = blockReason;
-  } else if (missingPrompt) {
-    elements.generateRubrics.title = "Preencha o prompt antes de gerar rubrics.";
-  } else if (missingGolden) {
-    elements.generateRubrics.title = "Preencha a Golden Response antes de gerar rubrics.";
-  } else if (missingTemplate) {
-    elements.generateRubrics.title = "Carregue um template antes de gerar rubrics.";
+  } else if (templateOutOfSync) {
+    elements.generateRubrics.title = "O template sera carregado automaticamente antes da geracao.";
   } else {
     elements.generateRubrics.removeAttribute("title");
   }
@@ -3383,9 +3738,29 @@ function updateActionStates(report = state.lastValidationReport) {
   const formatOk = report?.formatValidation?.status === "pass";
   const approvalOk = report?.approvalReadiness?.status === "pass";
   const hasContractMismatch = editorContractState().hasContractMismatch;
+  const session = Session?.get();
+  const sessionStatus =
+    session?.activeCaseId === state.selectedCaseId
+      ? session.activeCaseStatus
+      : elements.statusSelect.value;
+  const hasCaseId = Boolean(session?.activeCaseId || state.selectedCaseId);
+  const isReviewed = sessionStatus === "reviewed";
+  const isApproved = sessionStatus === "approved";
+  const isValidated = sessionStatus === "validated";
   elements.showRunHistory.disabled = false;
-  elements.markReviewed.disabled = !(structureOk && formatOk) || hasContractMismatch;
-  elements.markApproved.disabled = !approvalOk || hasContractMismatch;
+  elements.markReviewed.disabled =
+    !hasCaseId || !isValidated || isReviewed || isApproved || !(structureOk && formatOk) || hasContractMismatch;
+  elements.markApproved.disabled = !hasCaseId || !isReviewed || !approvalOk || hasContractMismatch;
+  if (!hasCaseId) {
+    elements.markReviewed.title = "Salve o draft antes de marcar reviewed.";
+    elements.markApproved.title = "Salve e marque reviewed antes de aprovar.";
+  } else if (!isReviewed) {
+    elements.markReviewed.removeAttribute("title");
+    elements.markApproved.title = "Marque como reviewed antes de aprovar.";
+  } else {
+    elements.markReviewed.removeAttribute("title");
+    elements.markApproved.removeAttribute("title");
+  }
   elements.exportJsonl.disabled = hasContractMismatch;
   elements.exportCsv.disabled = hasContractMismatch;
   updateGenerateButtonState();
@@ -3393,8 +3768,7 @@ function updateActionStates(report = state.lastValidationReport) {
 }
 
 elements.loadTemplate.addEventListener("click", () => {
-  invalidateGenerationMetadata();
-  loadTemplate().catch((error) => {
+  transitionTemplateSelection("template_reloaded").catch((error) => {
     elements.templateSummary.textContent = error.message;
   });
 });
@@ -3503,6 +3877,8 @@ elements.useSelectedAsGolden.addEventListener("click", () => {
   invalidateGenerationMetadata("golden_response_changed_after_generation", {
     current_selected_candidate_id: candidateId,
   });
+  renderCandidateSelectorState();
+  updateGenerateButtonState();
 });
 elements.goldenResponse.addEventListener("input", () => {
   if (state.goldenSource?.mode === "from_recommended_candidate") {
@@ -3527,6 +3903,7 @@ elements.goldenResponse.addEventListener("input", () => {
   resetCandidateScoring();
   invalidateQualityReview();
   invalidateGenerationMetadata();
+  updateGenerateButtonState();
 });
 elements.chatHistory.addEventListener("input", () => {
   resetCandidateScoring();
@@ -3534,16 +3911,12 @@ elements.chatHistory.addEventListener("input", () => {
   invalidateGenerationMetadata();
 });
 elements.categorySelect.addEventListener("change", () => {
-  resetCandidateScoring();
-  invalidateGenerationMetadata();
-  loadTemplate().catch((error) => {
+  transitionTemplateSelection("category_changed").catch((error) => {
     elements.templateSummary.textContent = error.message;
   });
 });
 elements.localeSelect.addEventListener("change", () => {
-  resetCandidateScoring();
-  invalidateGenerationMetadata();
-  loadTemplate().catch((error) => {
+  transitionTemplateSelection("locale_changed").catch((error) => {
     elements.templateSummary.textContent = error.message;
   });
 });
@@ -3625,6 +3998,9 @@ elements.generateRubrics.addEventListener("click", () => {
       renderGenerationDiagnostics(state.lastGenerationMetadata);
     }
     elements.aiWarning.textContent = error.message;
+    elements.validationOutput.hidden = false;
+    elements.validationOutput.textContent = error.message;
+    showToast(error.message, "warning");
     renderCandidateSelectorState();
     updateGenerateButtonState();
   });
@@ -3637,13 +4013,15 @@ elements.copyJson.addEventListener("click", () => {
 });
 
 elements.markReviewed.addEventListener("click", () => {
-  saveCase("reviewed").catch((error) => {
+  updateCaseStatus("reviewed").catch((error) => {
+    elements.validationOutput.hidden = false;
     elements.validationOutput.textContent = error.message;
   });
 });
 
 elements.markApproved.addEventListener("click", () => {
-  saveCase("approved").catch((error) => {
+  updateCaseStatus("approved").catch((error) => {
+    elements.validationOutput.hidden = false;
     elements.validationOutput.textContent = error.message;
   });
 });
@@ -3664,7 +4042,10 @@ async function init() {
   await Promise.all([loadTemplates(), loadProviders()]);
   await loadTemplate();
   await loadCases();
-  resetCase();
+  const hydrated = await hydrateRubricLabFromSession();
+  if (!hydrated) {
+    resetCase();
+  }
 }
 
 init().catch((error) => {

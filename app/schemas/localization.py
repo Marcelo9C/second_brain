@@ -366,6 +366,7 @@ class RubricCaseUpdate(BaseModel):
 
 
 class RubricValidationRequest(BaseModel):
+    case_id: str | None = None
     locale: str = "pt-BR"
     category: LocalizationCategory
     prompt: str | None = None

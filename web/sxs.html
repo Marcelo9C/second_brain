@@ -9,18 +9,21 @@
     <script src="https://cdn.jsdelivr.net/npm/diff@5.2.0/dist/diff.min.js"></script>
   </head>
   <body>
+    <header class="top-tabbar">
+      <a class="top-brand" href="/index.html">Second Brain - MLOps</a>
+      <nav class="top-tabs" aria-label="Lab navigation">
+        <a href="/index.html" class="top-tab">Single Chat</a>
+        <a href="/sxs.html" class="top-tab active">Evaluation</a>
+        <a href="/localization_rubric_lab.html" class="top-tab">Localization</a>
+        <a href="/smfp.html" class="top-tab">SMFP</a>
+        <a href="/smfp_governance.html" class="top-tab">Governance</a>
+      </nav>
+    </header>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="sidebar-head">
           <p class="eyebrow">RLHF Laboratory</p>
           <h1>Side-by-Side.</h1>
-          <div class="nav-container">
-            <div class="nav-pills">
-              <a href="/index.html" class="nav-pill">Single Chat</a>
-              <a href="/sxs.html" class="nav-pill active">Evaluation</a>
-              <a href="/localization_rubric_lab.html" class="nav-pill">Localization</a>
-            </div>
-          </div>
         </div>
 
         <section class="lab-card">
@@ -191,6 +194,29 @@
             <label class="flag-chip"><input type="checkbox" value="logic" /> Falha Lógica</label>
           </div>
 
+          <div id="rubric-scoring-panel" class="rubric-scoring-panel">
+            <div class="panel-header tight">
+              <p class="eyebrow">Rubric Judge</p>
+              <h3>Score ponderado das candidatas</h3>
+            </div>
+            <div class="field-grid">
+              <label>
+                <span>Rubrica aprovada</span>
+                <select id="rubric-case-select"></select>
+              </label>
+              <label>
+                <span>Judge model</span>
+                <select id="rubric-judge-model"></select>
+              </label>
+            </div>
+            <div class="actions export-actions">
+              <button id="score-with-rubrics" class="ghost" type="button">Aplicar rubricas</button>
+            </div>
+            <div id="rubric-score-output" class="rubric-score-output">
+              Nenhuma pontuacao aplicada nesta comparacao.
+            </div>
+          </div>
+
           <textarea id="rationale" class="rationale-textarea" placeholder="Explique o motivo da sua escolha (obrigatório para treinamento)..."></textarea>
 
           <div class="annotation-actions">
@@ -204,9 +230,27 @@
             <p class="eyebrow">Data Export</p>
             <h2>Preference Dataset</h2>
           </div>
-          <div class="actions export-actions">
-            <button id="export-sft-inline" type="button">Exportar SFT</button>
-            <button id="export-dpo-inline" class="ghost" type="button">Exportar DPO</button>
+          <div class="export-scope-group">
+            <div>
+              <p class="eyebrow">Anotacao atual</p>
+              <div id="current-export-hint" class="subtle">Nenhuma anotacao atual salva nesta sessao.</div>
+            </div>
+            <div class="actions export-actions">
+              <button id="export-current-sft-inline" type="button">SFT atual</button>
+              <button id="export-current-dpo-inline" class="ghost" type="button">DPO atual</button>
+              <button id="export-current-rm-inline" class="ghost" type="button">RM atual</button>
+            </div>
+          </div>
+          <div class="export-scope-group dataset-scope">
+            <div>
+              <p class="eyebrow">Dataset completo</p>
+              <div class="subtle">Exporta todas as anotacoes salvas.</div>
+            </div>
+            <div class="actions export-actions">
+              <button id="export-sft-inline" type="button">Dataset SFT</button>
+              <button id="export-dpo-inline" class="ghost" type="button">Dataset DPO</button>
+              <button id="export-rm-inline" class="ghost" type="button">Dataset RM</button>
+            </div>
           </div>
           <pre id="export-status-inline" class="code-block small">Nenhuma exportacao realizada.</pre>
         </section>
@@ -217,9 +261,27 @@
           <p class="eyebrow">Data Export</p>
           <h2>Avaliações Recentes</h2>
         </div>
-        <div class="actions export-actions">
-          <button id="export-sft" type="button">Exportar SFT</button>
-          <button id="export-dpo" class="ghost" type="button">Exportar DPO</button>
+        <div class="export-scope-group">
+          <div>
+            <p class="eyebrow">Anotacao atual</p>
+            <div id="current-export-hint-sidebar" class="subtle">Nenhuma anotacao atual salva nesta sessao.</div>
+          </div>
+          <div class="actions export-actions">
+            <button id="export-current-sft" type="button">SFT atual</button>
+            <button id="export-current-dpo" class="ghost" type="button">DPO atual</button>
+            <button id="export-current-rm" class="ghost" type="button">RM atual</button>
+          </div>
+        </div>
+        <div class="export-scope-group dataset-scope">
+          <div>
+            <p class="eyebrow">Dataset completo</p>
+            <div class="subtle">Exporta todas as anotacoes salvas.</div>
+          </div>
+          <div class="actions export-actions">
+            <button id="export-sft" type="button">Dataset SFT</button>
+            <button id="export-dpo" class="ghost" type="button">Dataset DPO</button>
+            <button id="export-rm" class="ghost" type="button">Dataset RM</button>
+          </div>
         </div>
         <pre id="export-status" class="code-block small">Nenhuma exportacao realizada.</pre>
         <div id="eval-history" class="history-list">
@@ -230,6 +292,7 @@
 
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <script defer src="/session_orchestrator.js"></script>
     <script defer src="/sxs.js"></script>
   </body>
 </html>

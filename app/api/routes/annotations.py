@@ -1,10 +1,18 @@
+import logging
+
 from fastapi import APIRouter
 
 from app.dependencies import get_annotation_export_service, get_annotation_repository
-from app.schemas.annotations import AnnotationDpoExportRequest, AnnotationExportRequest, AnnotationSxSCreate
+from app.schemas.annotations import (
+    AnnotationDpoExportRequest,
+    AnnotationExportRequest,
+    AnnotationRmExportRequest,
+    AnnotationSxSCreate,
+)
 
 
 router = APIRouter(prefix="/api/annotations", tags=["annotations"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/sxs")
@@ -45,16 +53,43 @@ def create_annotation(payload: AnnotationSxSCreate) -> dict[str, object]:
 
 @router.post("/sxs/export-jsonl")
 def export_annotations(payload: AnnotationExportRequest) -> dict[str, object]:
+    logger.info(
+        "SxS SFT export requested: annotation_id=%s limit=%s",
+        payload.annotation_id,
+        payload.limit,
+    )
     return get_annotation_export_service().export_sft_jsonl(
         limit=payload.limit,
         output_path=payload.output_path,
+        annotation_id=payload.annotation_id,
     )
 
 
 @router.post("/sxs/export-dpo-jsonl")
 def export_annotations_dpo(payload: AnnotationDpoExportRequest) -> dict[str, object]:
+    logger.info(
+        "SxS DPO export requested: annotation_id=%s limit=%s",
+        payload.annotation_id,
+        payload.limit,
+    )
     return get_annotation_export_service().export_dpo_jsonl(
         limit=payload.limit,
         output_path=payload.output_path,
         include_metadata=payload.include_metadata,
+        annotation_id=payload.annotation_id,
+    )
+
+
+@router.post("/sxs/export-rm-jsonl")
+def export_annotations_rm(payload: AnnotationRmExportRequest) -> dict[str, object]:
+    logger.info(
+        "SxS RM export requested: annotation_id=%s limit=%s",
+        payload.annotation_id,
+        payload.limit,
+    )
+    return get_annotation_export_service().export_rm_jsonl(
+        limit=payload.limit,
+        output_path=payload.output_path,
+        include_metadata=payload.include_metadata,
+        annotation_id=payload.annotation_id,
     )

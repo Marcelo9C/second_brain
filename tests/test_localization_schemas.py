@@ -87,7 +87,9 @@ class LocalizationSchemaTest(unittest.TestCase):
                 localization_routes.update_rubric_case("synthetic-id", payload)
 
         self.assertEqual(error.exception.status_code, 400)
-        self.assertIn("approval readiness", error.exception.detail)
+        self.assertIn("approval readiness", error.exception.detail["message"])
+        self.assertEqual(error.exception.detail["case_id"], "synthetic-id")
+        self.assertEqual(error.exception.detail["incoming_status"], "approved")
 
     def test_validate_rubric_payload_uses_received_contract(self) -> None:
         contract = contract_for(

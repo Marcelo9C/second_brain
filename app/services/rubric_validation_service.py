@@ -208,9 +208,18 @@ class RubricValidationService:
     ) -> dict[str, Any]:
         report = self.validate_case(payload, active_contract=active_contract)
         if status == "reviewed" and report["qualityValidation"]["status"] != "pass":
-            raise ValueError("Status reviewed blocked: quality review is pending or failing.")
+            raise ValueError(
+                f"Status reviewed blocked: {report['qualityValidation']['message']}"
+            )
         if status == "approved" and report["approvalReadiness"]["status"] != "pass":
-            raise ValueError("Status approved blocked: approval readiness is not pass.")
+            for layer_name in ("structureValidation", "formatValidation", "qualityValidation"):
+                if report[layer_name]["status"] != "pass":
+                    raise ValueError(
+                        f"Status approved blocked: {report[layer_name]['message']}"
+                    )
+            raise ValueError(
+                f"Status approved blocked: {report['approvalReadiness']['message']}"
+            )
         return report
 
     def _has_text(self, value: Any) -> bool:

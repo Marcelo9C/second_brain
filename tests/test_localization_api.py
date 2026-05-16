@@ -135,6 +135,9 @@ class FakeLocalizationService:
     def active_contract_for_payload(self, payload, *, verify_payload_contract=False):
         return None
 
+    def formal_template_for_payload(self, payload):
+        return None
+
     def get_case(self, case_id: str):
         return {"id": case_id, "metadata": {"existing": True}}
 
@@ -382,8 +385,11 @@ class LocalizationApiTest(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("contract_mismatch", response.json()["detail"])
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["success"])
+        self.assertEqual(data["metadata"]["validation_status"], "failed")
+        self.assertIn("between -6 and -1", data["metadata"]["validation_error"])
 
     def test_adulterated_dimension_contract_does_not_replace_formal_contract(self):
         rubrics = [
@@ -411,8 +417,48 @@ class LocalizationApiTest(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("contract_mismatch", response.json()["detail"])
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["success"])
+        self.assertEqual(data["metadata"]["validation_status"], "failed")
+        self.assertIn("Must be one of", data["metadata"]["validation_error"])
+        self.assertIn("Facts and Local Knowledge", data["metadata"]["validation_error"])
+
+    def test_generation_ignores_stale_payload_contract_and_uses_writing_formal_contract(self):
+        rubrics = [
+            self._rubric(dimension="Natural Language Fluency", weight=9, title="Grammar"),
+            self._rubric(dimension="Natural Language Fluency", weight=8, title="Flow"),
+            self._rubric(dimension="Natural Language Fluency", weight=10, title="Instruction Following"),
+            self._rubric(dimension="Cultural Understanding and Application", weight=7, title="Register"),
+            self._rubric(dimension="Natural Language Fluency", weight=-7, title="Awkward Writing"),
+            self._rubric(dimension="Natural Language Fluency", weight=-5, title="Formatting Errors"),
+        ]
+        self.fake_provider.response_text = json.dumps(rubrics)
+        stale_chitchat_contract = self._contract(
+            dimension="Natural Language Fluency",
+            negative_min=-6,
+            expected_rubric_count=5,
+        )
+
+        response = self.client.post(
+            "/api/localization/rubrics/generate",
+            json=self._ready_payload(
+                category="Writing",
+                base_template=rubrics,
+                contract=stale_chitchat_contract,
+                metadata={"template_contract": stale_chitchat_contract},
+                model="fake-model",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["metadata"]["validation_status"], "valid")
+        self.assertEqual(
+            data["metadata"]["template_used"],
+            "writing_template.json",
+        )
 
     def test_formal_contract_error_message_wins_without_payload_contract(self):
         rubrics = [
@@ -975,6 +1021,40 @@ class LocalizationApiTest(unittest.TestCase):
         self.assertEqual(data["formatValidation"]["status"], "pass")
         self.assertEqual(data["qualityHeuristics"]["status"], "pass")
         self.assertEqual(data["qualityValidation"]["status"], "pending")
+
+    def test_validate_ignores_stale_payload_contract_and_uses_formal_writing_contract(self):
+        rubrics = [
+            self._rubric(dimension="Natural Language Fluency", weight=9, title="Grammar"),
+            self._rubric(dimension="Natural Language Fluency", weight=8, title="Flow"),
+            self._rubric(dimension="Natural Language Fluency", weight=10, title="Instruction Following"),
+            self._rubric(dimension="Cultural Understanding and Application", weight=7, title="Register"),
+            self._rubric(dimension="Natural Language Fluency", weight=-7, title="Awkward Writing"),
+            self._rubric(dimension="Natural Language Fluency", weight=-5, title="Formatting Errors"),
+        ]
+        stale_chitchat_contract = self._contract(
+            dimension="Natural Language Fluency",
+            negative_min=-6,
+            expected_rubric_count=5,
+        )
+
+        response = self.client.post(
+            "/api/localization/rubrics/validate",
+            json={
+                "locale": "pt-BR",
+                "category": "Writing",
+                "prompt": "simple request",
+                "response_raw": "simple answer with matching content",
+                "golden_response": "simple answer with matching content",
+                "rubrics": rubrics,
+                "contract": stale_chitchat_contract,
+                "metadata": {"template_contract": stale_chitchat_contract},
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["structureValidation"]["status"], "pass")
+        self.assertEqual(data["formatValidation"]["status"], "pass")
 
     def test_generate_persists_run_when_repository_is_available(self):
         repository = FakeRunRepository()

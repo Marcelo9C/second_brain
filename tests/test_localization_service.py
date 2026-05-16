@@ -17,6 +17,22 @@ class StubRepository:
         return payload
 
 
+class StatefulRepository:
+    def __init__(self, record: dict | None = None) -> None:
+        self.record = record
+
+    def create(self, payload: dict) -> dict:
+        self.record = {"id": "case-1", **payload}
+        return self.record
+
+    def get_by_id(self, case_id: str) -> dict | None:
+        return self.record
+
+    def update(self, case_id: str, payload: dict) -> dict:
+        self.record = {**(self.record or {"id": case_id}), **payload}
+        return self.record
+
+
 def formal_template_payload(*, negative_min: int = -7) -> dict:
     return {
         "template_name": "writing_template.json",
@@ -83,7 +99,7 @@ class LocalizationServiceTest(unittest.TestCase):
         self.assertEqual(template["rubrics"][0]["Rubric_title"], "Synthetic")
         self.assertIn("scaffold", template["message"].lower())
 
-    def test_approved_status_blocks_adulterated_contract_metadata(self) -> None:
+    def test_approved_status_ignores_adulterated_contract_metadata_and_uses_formal_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             localization_dir = Path(directory)
             template_dir = localization_dir / "pt-br" / "templates"
@@ -124,7 +140,7 @@ class LocalizationServiceTest(unittest.TestCase):
                 },
             }
 
-            with self.assertRaisesRegex(ValueError, "contract_mismatch"):
+            with self.assertRaisesRegex(ValueError, "Rubrics_weight"):
                 service.create_case(payload)
 
     def test_approved_status_saves_formal_contract_snapshot(self) -> None:
@@ -170,6 +186,102 @@ class LocalizationServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(record["metadata"]["template_contract"]["weight_policy"]["negative_min"], -7)
+
+    def test_update_approved_requires_existing_reviewed_status(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            localization_dir = Path(directory)
+            template_dir = localization_dir / "pt-br" / "templates"
+            template_dir.mkdir(parents=True)
+            (template_dir / "writing_template.json").write_text(
+                json.dumps(formal_template_payload(negative_min=-7)),
+                encoding="utf-8",
+            )
+            repository = StatefulRepository(
+                {
+                    "id": "case-1",
+                    "locale": "pt-BR",
+                    "category": "Writing",
+                    "status": "draft",
+                    "metadata": {},
+                }
+            )
+            service = LocalizationService(
+                repository=repository,
+                localization_dir=localization_dir,
+            )
+
+            with self.assertRaisesRegex(ValueError, "reviewed before approval"):
+                service.update_case(
+                    "case-1",
+                    {
+                        "locale": "pt-BR",
+                        "category": "Writing",
+                        "prompt": "Synthetic prompt.",
+                        "response_raw": "Synthetic response.",
+                        "golden_response": "Synthetic golden response.",
+                        "template_name": "writing_template.json",
+                        "template_version": "1.0",
+                        "rubrics": [
+                            {
+                                "Rubric_dimensions": "Natural Language Fluency",
+                                "Rubric_title": "Valid formal weight",
+                                "Rubrics_description": "Synthetic rubric description for approval validation.",
+                                "Rubrics_weight": -7,
+                                "is_response_specific": False,
+                            }
+                        ],
+                        "status": "approved",
+                        "metadata": {"human_quality_reviewed": True},
+                    },
+                )
+
+    def test_update_reviewed_then_approved_succeeds(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            localization_dir = Path(directory)
+            template_dir = localization_dir / "pt-br" / "templates"
+            template_dir.mkdir(parents=True)
+            (template_dir / "writing_template.json").write_text(
+                json.dumps(formal_template_payload(negative_min=-7)),
+                encoding="utf-8",
+            )
+            repository = StatefulRepository(
+                {
+                    "id": "case-1",
+                    "locale": "pt-BR",
+                    "category": "Writing",
+                    "status": "draft",
+                    "metadata": {},
+                }
+            )
+            service = LocalizationService(
+                repository=repository,
+                localization_dir=localization_dir,
+            )
+            payload = {
+                "locale": "pt-BR",
+                "category": "Writing",
+                "prompt": "Synthetic prompt.",
+                "response_raw": "Synthetic response.",
+                "golden_response": "Synthetic golden response.",
+                "template_name": "writing_template.json",
+                "template_version": "1.0",
+                "rubrics": [
+                    {
+                        "Rubric_dimensions": "Natural Language Fluency",
+                        "Rubric_title": "Valid formal weight",
+                        "Rubrics_description": "Synthetic rubric description for approval validation.",
+                        "Rubrics_weight": -7,
+                        "is_response_specific": False,
+                    }
+                ],
+                "metadata": {"human_quality_reviewed": True},
+            }
+
+            reviewed = service.update_case("case-1", {**payload, "status": "reviewed"})
+            approved = service.update_case("case-1", {**payload, "status": "approved"})
+
+        self.assertEqual(reviewed["status"], "reviewed")
+        self.assertEqual(approved["status"], "approved")
 
     def test_formal_category_contract_wins_when_template_name_is_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

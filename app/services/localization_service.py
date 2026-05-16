@@ -87,6 +87,24 @@ class LocalizationService:
             self._assert_payload_contract_matches(payload, contract)
         return contract
 
+    def formal_template_for_payload(self, payload: dict[str, Any]):
+        locale = payload.get("locale")
+        category = payload.get("category")
+        template_name = payload.get("template_name")
+        if not locale or not category:
+            return None
+
+        try:
+            return self.get_template_contract(
+                locale=locale,
+                category=category,
+                template_name=template_name,
+            )
+        except FileNotFoundError:
+            if template_name:
+                return self.get_template_contract(locale=locale, category=category)
+            raise
+
     def create_case(self, payload: dict[str, Any]) -> dict[str, Any]:
         payload = self._normalize_candidate_fields_for_persistence(payload)
         self._assert_can_persist_status(payload)
@@ -111,13 +129,26 @@ class LocalizationService:
         return self.repository.get_by_id(case_id)
 
     def update_case(self, case_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        incoming_has_metadata = "metadata" in payload
         payload = self._normalize_candidate_fields_for_persistence(payload)
         if payload.get("status") in {"reviewed", "approved"}:
             existing = self.repository.get_by_id(case_id) or {}
+            if payload.get("status") == "approved" and existing.get("status") not in {"reviewed", "approved"}:
+                raise ValueError("Status approved blocked: mark and save the case as reviewed before approval.")
+            if payload.get("status") == "reviewed":
+                existing_metadata = existing.get("metadata") if isinstance(existing.get("metadata"), dict) else {}
+                payload_metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+                payload["metadata"] = {
+                    **existing_metadata,
+                    **payload_metadata,
+                    "human_quality_reviewed": True,
+                }
+            elif not incoming_has_metadata:
+                payload.pop("metadata", None)
             merged_payload = {
                 **existing,
                 **payload,
-                "metadata": payload.get("metadata") if payload.get("metadata") is not None else existing.get("metadata"),
+                "metadata": payload.get("metadata") if incoming_has_metadata or payload.get("metadata") is not None else existing.get("metadata"),
             }
             self._assert_can_persist_status(merged_payload)
             payload["metadata"] = merged_payload.get("metadata")
@@ -241,10 +272,16 @@ class LocalizationService:
             return
 
         metadata = payload.setdefault("metadata", {})
-        contract = self.active_contract_for_payload(payload, verify_payload_contract=True)
+        client_contract = payload.get("contract") or metadata.get("template_contract")
+        if client_contract:
+            metadata["client_payload_contract"] = client_contract
+        formal_template = self.formal_template_for_payload(payload)
+        contract = formal_template.contract if formal_template is not None else None
         if contract is not None:
             metadata["template_contract"] = contract.model_dump(mode="json")
             payload["contract"] = metadata["template_contract"]
+        else:
+            payload.pop("contract", None)
 
         report = self.validation_service.assert_can_use_status(
             payload,
