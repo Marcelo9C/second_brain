@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SMFP Governance | Model Lifecycle</title>
+    <meta name="description" content="SMFP AI Governance Dashboard — model lifecycle timeline, review board status, and dataset health." />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/governance.css" />
+  </head>
+  <body>
+    <header class="top-tabbar">
+      <a class="top-brand" href="/index.html">Second Brain - MLOps</a>
+      <nav class="top-tabs" aria-label="Lab navigation">
+        <a href="/index.html" class="top-tab">Single Chat</a>
+        <a href="/sxs.html" class="top-tab">Evaluation</a>
+        <a href="/localization_rubric_lab.html" class="top-tab">Localization</a>
+        <a href="/smfp.html" class="top-tab">SMFP</a>
+        <a href="/smfp_governance.html" class="top-tab active">Governance</a>
+      </nav>
+    </header>
+
+    <div class="app-shell governance-shell">
+      <!-- Sidebar: Executive Summary -->
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <p class="eyebrow">AI Governance</p>
+          <h1>Model Lifecycle.</h1>
+          <p class="subtle">
+            mini-NIST compliance view: model status, review board, promotion gate, and audit timeline.
+          </p>
+        </div>
+
+        <!-- Active Model Card -->
+        <section class="lab-card gov-model-card" id="gov-model-card">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Active Model</p>
+              <h2 id="gov-active-model-label">No model active</h2>
+            </div>
+            <span id="gov-ml-status" class="badge neutral">disabled</span>
+          </div>
+          <div class="gov-model-details" id="gov-model-details">
+            <div class="gov-metric-row">
+              <span>Accuracy</span>
+              <strong id="gov-accuracy">—</strong>
+            </div>
+            <div class="gov-metric-row">
+              <span>Macro F1</span>
+              <strong id="gov-macro-f1">—</strong>
+            </div>
+            <div class="gov-metric-row">
+              <span>Algorithm</span>
+              <strong id="gov-algorithm">—</strong>
+            </div>
+            <div class="gov-metric-row">
+              <span>Labels</span>
+              <strong id="gov-labels">—</strong>
+            </div>
+            <div class="gov-metric-row">
+              <span>Trained</span>
+              <strong id="gov-trained-at">—</strong>
+            </div>
+            <div class="gov-metric-row">
+              <span>Promoted</span>
+              <strong id="gov-promoted-at">—</strong>
+            </div>
+            <div class="gov-metric-row">
+              <span>Promoted by</span>
+              <strong id="gov-promoted-by">—</strong>
+            </div>
+          </div>
+        </section>
+
+        <!-- Dataset Health Card -->
+        <section class="lab-card gov-dataset-card" id="gov-dataset-card">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Dataset Health</p>
+              <h2>Training data</h2>
+            </div>
+          </div>
+          <div class="gov-model-details">
+            <div class="gov-metric-row">
+              <span>Total samples</span>
+              <strong id="gov-total-samples">—</strong>
+            </div>
+            <div class="gov-metric-row">
+              <span>Labeled</span>
+              <strong id="gov-labeled-count">—</strong>
+            </div>
+            <div class="gov-metric-row">
+              <span>Unlabeled</span>
+              <strong id="gov-unlabeled-count">—</strong>
+            </div>
+            <div class="gov-metric-row">
+              <span>Labels</span>
+              <strong id="gov-label-distribution">—</strong>
+            </div>
+            <div class="gov-metric-row">
+              <span>Splits</span>
+              <strong id="gov-split-distribution">—</strong>
+            </div>
+          </div>
+        </section>
+
+        <!-- Actions -->
+        <div class="gov-actions">
+          <button id="gov-refresh" class="primary-action-button" type="button">Refresh Dashboard</button>
+          <button id="gov-reset" class="ghost" type="button">Reset Cache</button>
+        </div>
+      </aside>
+
+      <!-- Main: Timeline + Review Board -->
+      <main class="workspace governance-workspace">
+        <!-- Model Registry -->
+        <section class="history-panel">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Model Registry</p>
+              <h2>All models</h2>
+            </div>
+            <span id="gov-model-count" class="badge neutral">0</span>
+          </div>
+          <div id="gov-model-registry" class="gov-registry-grid">
+            No models registered.
+          </div>
+        </section>
+
+        <!-- Review Board -->
+        <section class="history-panel">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Review Board</p>
+              <h2>Pending reviews</h2>
+            </div>
+            <span id="gov-review-profile" class="badge neutral">lab</span>
+          </div>
+          <div id="gov-review-board" class="gov-review-board">
+            No reviews available.
+          </div>
+        </section>
+
+        <!-- Governance Timeline -->
+        <section class="history-panel gov-timeline-section">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Governance Timeline</p>
+              <h2>Audit trail</h2>
+            </div>
+            <div class="gov-timeline-filters">
+              <select id="gov-timeline-filter-type">
+                <option value="">All events</option>
+                <option value="dataset_sample_added">Sample added</option>
+                <option value="dataset_sample_labeled">Sample labeled</option>
+                <option value="baseline_trained">Baseline trained</option>
+                <option value="review_submitted">Review submitted</option>
+                <option value="model_approved">Model approved</option>
+                <option value="model_promoted">Model promoted</option>
+                <option value="model_retired">Model retired</option>
+              </select>
+              <span id="gov-timeline-count" class="badge neutral">0</span>
+            </div>
+          </div>
+          <div id="gov-timeline" class="gov-timeline">
+            No governance events recorded.
+          </div>
+        </section>
+
+        <!-- Governance Snapshots -->
+        <section class="history-panel gov-snapshots-section">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Governance Snapshots</p>
+              <h2>State checkpoints</h2>
+            </div>
+            <div class="gov-snapshot-actions">
+              <button id="gov-create-snapshot" class="primary-action-button compact" type="button">Create Snapshot</button>
+              <span id="gov-snapshot-count" class="badge neutral">0</span>
+            </div>
+          </div>
+          <div id="gov-snapshot-list" class="gov-snapshot-list">
+            No snapshots recorded.
+          </div>
+
+          <!-- Compare panel (inline expandable) -->
+          <div id="gov-snapshot-compare-panel" class="gov-snapshot-compare-panel hidden">
+            <div class="gov-compare-header">
+              <p class="eyebrow">Compare Snapshots</p>
+              <div class="gov-compare-selectors">
+                <select id="gov-compare-a"></select>
+                <span class="gov-compare-vs">vs</span>
+                <select id="gov-compare-b"></select>
+                <button id="gov-compare-btn" class="ghost compact" type="button">Compare</button>
+              </div>
+            </div>
+            <div id="gov-compare-result" class="gov-compare-result">
+              Select two snapshots to compare.
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script defer src="/session_orchestrator.js"></script>
+    <script defer src="/smfp_governance.js"></script>
+  </body>
+</html>

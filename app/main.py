@@ -9,6 +9,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.localization import router as localization_router
 from app.api.routes.llm import router as llm_router
 from app.api.routes.rag import router as rag_router
+from app.api.routes.smfp import router as smfp_router
 from app.core.config import ROOT_DIR, get_settings
 
 
@@ -36,6 +37,7 @@ app.include_router(llm_router)
 app.include_router(rag_router)
 app.include_router(annotations_router)
 app.include_router(localization_router)
+app.include_router(smfp_router)
 
 
 @app.get("/", include_in_schema=False)

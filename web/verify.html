@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Public Verify | SMFP</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="verify-page">
+    <header class="top-tabbar">
+      <a class="top-brand" href="/verify.html">SMFP Public Verify</a>
+      <nav class="top-tabs" aria-label="Verification navigation">
+        <a href="/smfp.html" class="top-tab">SMFP Lab</a>
+        <a href="/verify.html" class="top-tab active">Public Verify</a>
+      </nav>
+    </header>
+
+    <main class="public-verify-shell">
+      <section class="conversation-panel public-verify-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Public Verify</p>
+            <h1>Upload + Manifest</h1>
+          </div>
+          <span id="verify-status" class="badge neutral">idle</span>
+        </div>
+
+        <form id="verify-form" class="form-stack" novalidate>
+          <label id="verify-dropzone" class="smfp-dropzone" for="verify-file">
+            <input id="verify-file" type="file" />
+            <strong>DROP ORIGINAL FILE</strong>
+            <span>the exact file referenced by the manifest</span>
+            <em>Browse files</em>
+            <small id="verify-file-summary">No file selected.</small>
+          </label>
+
+          <div class="smfp-auto-hash" aria-live="polite">
+            <span>local sha256</span>
+            <strong id="verify-local-hash">SHA256 pending</strong>
+          </div>
+
+          <label>
+            <span>Manifest JSON</span>
+            <textarea id="verify-manifest" rows="12" spellcheck="false" placeholder="Paste the exported SMFP manifest JSON here."></textarea>
+          </label>
+
+          <div class="actions">
+            <button id="verify-run" class="primary-action-button" type="submit" disabled>Verify Public Manifest</button>
+            <button id="verify-import" class="ghost" type="button">Import Manifest JSON</button>
+            <input id="verify-manifest-file" type="file" accept="application/json,.json" hidden />
+          </div>
+        </form>
+      </section>
+
+      <section class="sidepanel public-verify-results">
+        <section class="history-panel">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Provenance Verification</p>
+              <h2>Result</h2>
+            </div>
+          </div>
+          <div id="verify-result" class="smfp-trust-card neutral">
+            Upload the original file and paste a manifest to verify.
+          </div>
+          <div id="verify-evidence-summary" class="smfp-evidence-summary">
+            Evidence Summary appears after verification.
+          </div>
+        </section>
+
+        <section class="history-panel">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Origin Analysis</p>
+              <h2>Heuristic only</h2>
+            </div>
+            <span class="badge warning">heuristic only</span>
+          </div>
+          <div id="verify-origin" class="smfp-origin-card">
+            Origin attribution runs after public verification.
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script defer src="/verify.js"></script>
+  </body>
+</html>

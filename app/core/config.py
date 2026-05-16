@@ -33,6 +33,13 @@ class Settings:
     default_embedding_model: str = "all-MiniLM-L6-v2"
     default_embedding_dimensions: int = 384
     export_dir: Path = ROOT_DIR / "data" / "exports"
+    smfp_dir: Path = ROOT_DIR / "data" / "smfp"
+    smfp_signing_secret: str = "dashem-smfp-dev-secret"
+    smfp_key_id: str = "dashem-ed25519-dev-01"
+    smfp_public_key_id: str = "dashem-ed25519-dev-01"
+    smfp_signature_mode: str = "PUBLIC_ED25519"
+    smfp_private_key: str | None = None
+    smfp_private_key_file: Path | None = None
     models_dir: Path = ROOT_DIR / "models"
     localization_debug_recommendation_trace: bool = False
 
@@ -78,6 +85,26 @@ def get_settings() -> Settings:
             )
         ),
         export_dir=Path(os.environ.get("EXPORT_DIR", str(Settings.export_dir))),
+        smfp_dir=Path(os.environ.get("SMFP_DIR", str(Settings.smfp_dir))),
+        smfp_signing_secret=os.environ.get(
+            "SMFP_SIGNING_SECRET",
+            Settings.smfp_signing_secret,
+        ),
+        smfp_key_id=os.environ.get("SMFP_KEY_ID", Settings.smfp_key_id),
+        smfp_public_key_id=os.environ.get(
+            "SMFP_PUBLIC_KEY_ID",
+            os.environ.get("SMFP_KEY_ID", Settings.smfp_public_key_id),
+        ),
+        smfp_signature_mode=os.environ.get(
+            "SMFP_SIGNATURE_MODE",
+            Settings.smfp_signature_mode,
+        ),
+        smfp_private_key=os.environ.get("SMFP_PRIVATE_KEY"),
+        smfp_private_key_file=(
+            Path(os.environ["SMFP_PRIVATE_KEY_FILE"])
+            if os.environ.get("SMFP_PRIVATE_KEY_FILE")
+            else None
+        ),
         localization_debug_recommendation_trace=_env_bool(
             "LOCALIZATION_DEBUG_RECOMMENDATION_TRACE",
             Settings.localization_debug_recommendation_trace,

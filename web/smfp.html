@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SMFP | DASHEM Forensics</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="top-tabbar">
+      <a class="top-brand" href="/index.html">Second Brain - MLOps</a>
+      <nav class="top-tabs" aria-label="Lab navigation">
+        <a href="/index.html" class="top-tab">Single Chat</a>
+        <a href="/sxs.html" class="top-tab">Evaluation</a>
+        <a href="/localization_rubric_lab.html" class="top-tab">Localization</a>
+        <a href="/smfp.html" class="top-tab active">SMFP</a>
+        <a href="/smfp_governance.html" class="top-tab">Governance</a>
+      </nav>
+    </header>
+    <div class="app-shell smfp-shell">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <p class="eyebrow">DASHEM Compliance</p>
+          <h1>SMFP.</h1>
+          <p class="subtle">
+            Synthetic Media Forensics Pipeline para verificar arquivo, manifest e cadeia de revisoes.
+          </p>
+        </div>
+
+        <section class="lab-card smfp-pipeline-card">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Pipeline</p>
+              <h2>Evidence flow</h2>
+            </div>
+          </div>
+          <div class="smfp-flow">
+            <span class="active" data-pipeline-step="drop">1. Drop file</span>
+            <span data-pipeline-step="hash">2. SHA256</span>
+            <span data-pipeline-step="signature">3. Ed25519</span>
+            <span data-pipeline-step="manifest">4. Manifest</span>
+            <span data-pipeline-step="chain">5. Revision chain</span>
+            <span data-pipeline-step="trust">6. Trust report</span>
+          </div>
+        </section>
+      </aside>
+
+      <main class="workspace smfp-workspace">
+        <section class="conversation-panel smfp-panel smfp-ingest-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Upload -> Verify -> Trust Report</p>
+              <h2>Forensic intake</h2>
+            </div>
+            <span id="smfp-status" class="badge neutral">idle</span>
+          </div>
+
+          <form id="smfp-form" class="form-stack" novalidate>
+            <label id="smfp-dropzone" class="smfp-dropzone" for="smfp-file">
+              <input id="smfp-file" type="file" />
+              <strong>DROP FILE HERE</strong>
+              <span>image / pdf / docx / mp4 / txt</span>
+              <em>Browse files</em>
+              <small id="smfp-file-summary">No evidence selected.</small>
+            </label>
+
+            <div class="smfp-auto-hash" aria-live="polite">
+              <span>auto hash</span>
+              <strong id="smfp-local-hash">SHA256 pending</strong>
+            </div>
+
+            <div class="field-grid">
+              <label>
+                <span>Filename</span>
+                <input id="smfp-filename" type="text" value="asset.txt" />
+              </label>
+              <label>
+                <span>MIME type</span>
+                <select id="smfp-mime">
+                  <option value="text/plain">Text .txt</option>
+                  <option value="image/png">Image .png</option>
+                  <option value="image/jpeg">Image .jpg</option>
+                  <option value="application/pdf">PDF .pdf</option>
+                  <option value="application/vnd.openxmlformats-officedocument.wordprocessingml.document">Word .docx</option>
+                  <option value="audio/wav">Audio .wav</option>
+                  <option value="video/mp4">Video .mp4</option>
+                  <option value="application/octet-stream">Other binary</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="field-grid">
+              <label>
+                <span>Model / origem IA</span>
+                <input id="smfp-model" type="text" placeholder="ex.: gemini-2.5, unknown, human" />
+              </label>
+              <label>
+                <span>Source</span>
+                <input id="smfp-source" type="text" value="lab" />
+              </label>
+            </div>
+
+            <label>
+              <span>Prompt ou instrucao original</span>
+              <textarea id="smfp-prompt" rows="3" placeholder="Opcional; sera armazenado como hash."></textarea>
+            </label>
+
+            <label>
+              <span>Conteudo textual / revisao manual</span>
+              <textarea id="smfp-content" rows="5" placeholder="Opcional: cole texto se nao houver arquivo, ou use este campo para Add Revision."></textarea>
+            </label>
+
+            <div class="actions">
+              <button id="smfp-ingest" class="primary-action-button" type="submit">Generate Manifest</button>
+              <button id="smfp-add-revision" class="ghost" type="button" disabled>Add Revision</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="sidepanel smfp-sidepanel">
+          <section class="history-panel smfp-report-panel">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">Forensic Report</p>
+                <h2>Trust report</h2>
+              </div>
+            </div>
+            <div id="smfp-trust" class="smfp-trust-card neutral">
+              Drop a file to generate the forensic report.
+            </div>
+            <div id="smfp-evidence-summary" class="smfp-evidence-summary">
+              Evidence Summary appears after verification.
+            </div>
+            <div class="smfp-dataset-summary">
+              <div class="panel-header tight">
+                <div>
+                  <p class="eyebrow">Dataset QA</p>
+                  <h3>Dataset Summary</h3>
+                </div>
+                <button id="smfp-refresh-dataset-summary" class="ghost compact-button" type="button">Refresh</button>
+              </div>
+              <div id="smfp-dataset-summary" class="smfp-summary-grid">
+                Dataset diagnostics not loaded.
+              </div>
+            </div>
+            <div class="smfp-dataset-builder">
+              <div class="panel-header tight">
+                <div>
+                  <p class="eyebrow">Dataset Builder</p>
+                  <h3>Add to Dataset</h3>
+                </div>
+              </div>
+              <div class="field-grid compact">
+                <label>
+                  <span>Label</span>
+                  <select id="smfp-dataset-label">
+                    <option value="">Unlabeled</option>
+                    <option value="openai_like">OpenAI-like</option>
+                    <option value="midjourney_like">Midjourney-like</option>
+                    <option value="flux_like">Flux-like</option>
+                    <option value="stable_diffusion_like">Stable Diffusion-like</option>
+                    <option value="gemini_like">Gemini-like</option>
+                    <option value="camera_real">Camera real</option>
+                    <option value="unknown">Unknown</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Split</span>
+                  <select id="smfp-dataset-split">
+                    <option value="unassigned">unassigned</option>
+                    <option value="train">train</option>
+                    <option value="val">val</option>
+                    <option value="test">test</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Source</span>
+                  <select id="smfp-dataset-source">
+                    <option value="lab">lab</option>
+                    <option value="manual">manual</option>
+                    <option value="external">external</option>
+                  </select>
+                </label>
+                <label>
+                  <span>License</span>
+                  <input id="smfp-dataset-license" type="text" value="internal-review" />
+                </label>
+              </div>
+              <label>
+                <span>Notes</span>
+                <textarea id="smfp-dataset-notes" rows="3" placeholder="Why this label/split is appropriate."></textarea>
+              </label>
+              <div class="actions">
+                <button id="smfp-add-dataset" class="ghost" type="button" disabled>Add to Dataset</button>
+              </div>
+              <div id="smfp-dataset-status" class="subtle">Dataset sample not created.</div>
+            </div>
+            <div class="smfp-report-actions">
+              <button id="smfp-export-report" class="primary-action-button" type="button" disabled>Export Report</button>
+              <button id="smfp-public-key" class="ghost" type="button" disabled>Public Verify</button>
+              <button id="smfp-verify" class="ghost" type="button" disabled>Run Verify</button>
+            </div>
+            <div class="smfp-reset-row">
+              <button id="smfp-reset" class="ghost" type="button">⟲ Reset Session</button>
+            </div>
+          </section>
+
+          <section class="history-panel">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">Origin Analysis</p>
+                <h2>Likely producer</h2>
+              </div>
+              <span class="badge warning">heuristic only</span>
+            </div>
+            <div id="smfp-origin" class="smfp-origin-card">
+              Origin attribution runs after verify.
+            </div>
+          </section>
+
+          <section class="history-panel">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">Manifest</p>
+                <h2>Provenance JSON</h2>
+              </div>
+            </div>
+            <pre id="smfp-manifest" class="code-block small">Aguardando manifest.</pre>
+          </section>
+
+          <section class="history-panel">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">Public Verify</p>
+                <h2>Public key registry</h2>
+              </div>
+            </div>
+            <pre id="smfp-public-key-output" class="code-block small">Nenhuma chave carregada.</pre>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script defer src="/session_orchestrator.js"></script>
+    <script defer src="/smfp.js"></script>
+  </body>
+</html>

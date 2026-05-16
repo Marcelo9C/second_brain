@@ -19,6 +19,15 @@ from app.services.rag_pipeline import RAGPipelineService
 from app.services.rubric_candidate_scoring_service import RubricCandidateScoringService
 from app.services.rubric_generation_service import RubricGenerationService
 from app.services.rubric_validation_service import RubricValidationService
+from app.services.smfp_evidence_fusion_service import SmfpEvidenceFusionService
+from app.services.smfp_frequency_service import SmfpFrequencyService
+from app.services.smfp_health_service import SmfpHealthService
+from app.services.smfp_inference_service import SmfpInferenceService
+from app.services.smfp_metadata_service import SmfpMetadataService
+from app.services.smfp_ml_service import SmfpMlService
+from app.services.smfp_origin_service import SmfpOriginService
+from app.services.smfp_report_service import SmfpReportService
+from app.services.smfp_service import SmfpService
 
 
 @lru_cache
@@ -90,6 +99,128 @@ def get_annotation_export_service() -> AnnotationExportService:
     return AnnotationExportService(
         annotation_repository=get_annotation_repository(),
         export_dir=settings.export_dir,
+    )
+
+
+@lru_cache
+def get_smfp_service() -> SmfpService:
+    settings = get_settings()
+    return SmfpService(
+        storage_dir=settings.smfp_dir,
+        signing_secret=settings.smfp_signing_secret,
+        key_id=settings.smfp_key_id,
+        public_key_id=settings.smfp_public_key_id,
+        signature_mode=settings.smfp_signature_mode,
+        private_key=settings.smfp_private_key,
+        private_key_file=settings.smfp_private_key_file,
+    )
+
+
+@lru_cache
+def get_smfp_origin_service() -> SmfpOriginService:
+    return SmfpOriginService(metadata_service=get_smfp_metadata_service())
+
+
+@lru_cache
+def get_smfp_metadata_service() -> SmfpMetadataService:
+    return SmfpMetadataService()
+
+
+@lru_cache
+def get_smfp_frequency_service() -> SmfpFrequencyService:
+    return SmfpFrequencyService()
+
+
+@lru_cache
+def get_smfp_evidence_fusion_service() -> SmfpEvidenceFusionService:
+    return SmfpEvidenceFusionService()
+
+
+@lru_cache
+def get_smfp_health_service() -> SmfpHealthService:
+    settings = get_settings()
+    return SmfpHealthService(
+        key_registry_path=settings.smfp_dir / "key_registry.json",
+        dataset_registry_path=ROOT_DIR / "datasets" / "smfp" / "dataset_registry.json",
+        model_registry_path=ROOT_DIR / "models" / "smfp" / "model_registry.json",
+        model_dir=ROOT_DIR / "models" / "smfp",
+    )
+
+
+@lru_cache
+def get_smfp_inference_service() -> SmfpInferenceService:
+    return SmfpInferenceService(
+        ml_service=get_smfp_ml_service(),
+        model_registry_path=ROOT_DIR / "models" / "smfp" / "model_registry.json",
+        model_dir=ROOT_DIR / "models" / "smfp",
+    )
+
+
+@lru_cache
+def get_smfp_report_service() -> SmfpReportService:
+    settings = get_settings()
+    return SmfpReportService(
+        smfp_service=get_smfp_service(),
+        public_verify_base_url=f"http://{settings.app_host}:{settings.app_port}",
+    )
+
+
+@lru_cache
+def get_smfp_ml_service() -> SmfpMlService:
+    return SmfpMlService(
+        dataset_registry_path=ROOT_DIR / "datasets" / "smfp" / "dataset_registry.json",
+        model_registry_path=ROOT_DIR / "models" / "smfp" / "model_registry.json",
+    )
+
+
+@lru_cache
+def get_smfp_training_service():
+    from app.services.smfp_training_service import SmfpTrainingService
+
+    return SmfpTrainingService(
+        dataset_registry_path=ROOT_DIR / "datasets" / "smfp" / "dataset_registry.json",
+        model_registry_path=ROOT_DIR / "models" / "smfp" / "model_registry.json",
+        model_dir=ROOT_DIR / "models" / "smfp",
+        snapshot_service=get_smfp_snapshot_service(),
+    )
+
+
+@lru_cache
+def get_smfp_review_service():
+    from app.services.smfp_review_service import SmfpReviewService
+
+    return SmfpReviewService(
+        model_registry_path=ROOT_DIR / "models" / "smfp" / "model_registry.json",
+        model_dir=ROOT_DIR / "models" / "smfp",
+        training_service=get_smfp_training_service(),
+        required_approvals=1,
+        governance_profile="lab",
+        snapshot_service=get_smfp_snapshot_service(),
+    )
+
+
+@lru_cache
+def get_smfp_timeline_service():
+    from app.services.smfp_timeline_service import SmfpTimelineService
+
+    return SmfpTimelineService(
+        dataset_registry_path=ROOT_DIR / "datasets" / "smfp" / "dataset_registry.json",
+        model_registry_path=ROOT_DIR / "models" / "smfp" / "model_registry.json",
+        model_dir=ROOT_DIR / "models" / "smfp",
+    )
+
+
+@lru_cache
+def get_smfp_snapshot_service():
+    from app.services.smfp_snapshot_service import SmfpSnapshotService
+
+    return SmfpSnapshotService(
+        snapshot_dir=ROOT_DIR / "snapshots" / "governance",
+        model_registry_path=ROOT_DIR / "models" / "smfp" / "model_registry.json",
+        dataset_registry_path=ROOT_DIR / "datasets" / "smfp" / "dataset_registry.json",
+        model_dir=ROOT_DIR / "models" / "smfp",
+        smfp_service=get_smfp_service(),
+        timeline_service=get_smfp_timeline_service(),
     )
 
 

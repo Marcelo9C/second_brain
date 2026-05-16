@@ -4,3 +4,7 @@ psycopg[binary]
 pgvector
 sentence-transformers
 python-dotenv
+pynacl
+orjson
+scikit-learn
+joblib
