@@ -1,0 +1,20 @@
+{
+  "request": {
+    "objective": "generate_dpo_pairs",
+    "context": {
+      "available_models": ["llama3.2:3b"]
+    },
+    "constraints": {
+      "local_only": true
+    },
+    "user_preferences": {}
+  },
+  "snapshot": {
+    "actions": ["add_distinct_local_model_before_judging"],
+    "confidences": {
+      "add_distinct_local_model_before_judging": 0.82
+    },
+    "rules_triggered": ["local_model_diversity"],
+    "response_hash": "1ef1fa94c82d0c9f5799bc3e07d471fc85abd47223e3aa40bc9a945bb2883338"
+  }
+}

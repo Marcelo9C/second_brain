@@ -1,0 +1,27 @@
+{
+  "request": {
+    "objective": "generate_dpo_pairs",
+    "context": {
+      "model_provenance_required": true,
+      "current_models": {
+        "generation": "llama3.2:3b",
+        "judge": "phi3:mini"
+      },
+      "model_provenance": {
+        "generation": {
+          "selected_by": "user"
+        }
+      }
+    },
+    "constraints": {},
+    "user_preferences": {}
+  },
+  "snapshot": {
+    "actions": ["record_model_selection_provenance"],
+    "confidences": {
+      "record_model_selection_provenance": 0.91
+    },
+    "rules_triggered": ["model_provenance"],
+    "response_hash": "42fadb53be064d25e36b71414d2fbbdf24b4c7e35a380f763eb3293a09368e89"
+  }
+}

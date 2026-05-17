@@ -1,0 +1,20 @@
+{
+  "request": {
+    "objective": "generate_dpo_pairs",
+    "context": {
+      "rubric": {
+        "criteria_count": 2
+      }
+    },
+    "constraints": {},
+    "user_preferences": {}
+  },
+  "snapshot": {
+    "actions": ["increase_rubric_complexity"],
+    "confidences": {
+      "increase_rubric_complexity": 0.88
+    },
+    "rules_triggered": ["rubric_strength"],
+    "response_hash": "c5867e1be8c67b3f5a6f9e59e529dac456e240caa00bfc8e33a9869f122963d6"
+  }
+}

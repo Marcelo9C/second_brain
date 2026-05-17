@@ -1,0 +1,146 @@
+# Hermes Advise v1.1 Cooldown Log
+#
+# Internal version: hermes-advise-v1.1-stability-green
+# Purpose: manual field notes from real operator use.
+#
+# Rules:
+# - Do not automate this file yet.
+# - Do not treat this as persistent audit evidence.
+# - Record real lab usage, not demos.
+# - Focus especially on missing_expected_recommendation.
+
+cooldown:
+  status: active
+  target_duration: 1_to_2_weeks
+  target_requests: 20_to_50
+  constraints:
+    no_new_rules: true
+    no_observe_implementation: true
+    no_act_implementation: true
+    no_llm_integration: true
+    no_run_engine_integration: true
+    no_main_navigation_entry: true
+
+manual_metrics_totals:
+  advise_usage:
+    total_requests: 0
+    unique_experiment_types: []
+    recommendations_per_request: []
+    empty_responses: 0
+  trust_signals:
+    accepted_recommendations: 0
+    ignored_recommendations: 0
+    disputed_recommendations: 0
+  recommendation_quality:
+    useful: 0
+    obvious_but_correct: 0
+    noisy: 0
+    wrong: 0
+    missing_expected_recommendation: 0
+
+weekly_reviews:
+  week_001:
+    date:
+    questions:
+      did_hermes_help:
+      alerted_early:
+      repeated_too_much:
+      became_noise:
+      systematically_ignored_recommendations:
+      rules_never_triggered:
+      rules_triggered_too_often:
+    decision:
+    notes:
+
+exit_review:
+  date:
+  cooldown_exit_criteria:
+    deterministic_failures:
+    contract_failures:
+    latency_budget_violations:
+    wrong_recommendations:
+    noisy_recommendations:
+    missing_expected_recommendations:
+  decision:
+    # choose one: promote_advise | refine_advise | begin_observe | continue_cooldown
+  rationale:
+
+sessions:
+  session_001:
+    date:
+    operator:
+    experiment_type:
+      # examples: sxs | rubric | dpo_pair_generation | rlhf_experiment | locale_evaluation | smfp_compliance
+    objective:
+    context_summary:
+    request_id:
+    response_hash:
+    recommendations_count:
+    recommendation_actions: []
+    trust_signals:
+      accepted: 0
+      ignored: 0
+      disputed: 0
+    recommendation_quality:
+      useful: 0
+      obvious_but_correct: 0
+      noisy: 0
+      wrong: 0
+      missing_expected_recommendation: 0
+    false_negative_check:
+      should_have_spoken: false
+      missed_issue:
+      operator_expected_recommendation:
+    operator_notes:
+
+  session_002:
+    date:
+    operator:
+    experiment_type:
+    objective:
+    context_summary:
+    request_id:
+    response_hash:
+    recommendations_count:
+    recommendation_actions: []
+    trust_signals:
+      accepted: 0
+      ignored: 0
+      disputed: 0
+    recommendation_quality:
+      useful: 0
+      obvious_but_correct: 0
+      noisy: 0
+      wrong: 0
+      missing_expected_recommendation: 0
+    false_negative_check:
+      should_have_spoken: false
+      missed_issue:
+      operator_expected_recommendation:
+    operator_notes:
+
+  session_003:
+    date:
+    operator:
+    experiment_type:
+    objective:
+    context_summary:
+    request_id:
+    response_hash:
+    recommendations_count:
+    recommendation_actions: []
+    trust_signals:
+      accepted: 0
+      ignored: 0
+      disputed: 0
+    recommendation_quality:
+      useful: 0
+      obvious_but_correct: 0
+      noisy: 0
+      wrong: 0
+      missing_expected_recommendation: 0
+    false_negative_check:
+      should_have_spoken: false
+      missed_issue:
+      operator_expected_recommendation:
+    operator_notes:

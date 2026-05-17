@@ -41,6 +41,17 @@ For deep dives into the system design and guides on how to connect your own APIs
 
 ## 🚀 Como Rodar
 
+### Nota de ambiente
+
+O Python padrão do shell pode apontar para outro venv, como `hermes-agent`.
+Para executar testes, servidor e jobs do projeto, use sempre:
+
+```powershell
+.\.venv\Scripts\python.exe
+```
+
+Esse ambiente possui as dependências corretas do projeto, incluindo `psycopg`.
+
 1. Garanta que o Ollama esteja ativo em `http://127.0.0.1:11434`
 2. Configure o ambiente:
    ```powershell
@@ -53,13 +64,35 @@ For deep dives into the system design and guides on how to connect your own APIs
    ```
 4. Inicialize o banco local:
    ```powershell
-   python db_init.py
+   .\.venv\Scripts\python.exe db_init.py
    ```
 5. Execute o backend:
    ```powershell
-   uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
+   .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
    ```
 6. Acesse: `http://127.0.0.1:8765`
+
+### Hermes smoke test
+
+Status: archived prototype. O Hermes v0 foi removido da navegação principal e
+mantido por URL direta como evidência forense do identity gap descrito em
+`docs/adr_0001_the_hermes_fallacy.md`.
+
+Hermes Advisor está disponível por URL direta em `/hermes_advise.html` para
+diagnóstico sem efeitos colaterais via `POST /api/hermes/advise`.
+Versão interna: `hermes-advise-v1.1-stability-green`.
+Uso do endpoint: `docs/hermes_advise_endpoint_usage.md`.
+Changelog: `docs/hermes_changelog.md`.
+
+Para validar o orquestrador ponta a ponta:
+
+1. Abra diretamente `http://127.0.0.1:8765/hermes.html`.
+2. Escolha um rubric case com rubricas.
+3. Rode uma configuração pequena: `num_conversations=1`, `num_turns=1`, `max_history_turns=1`.
+4. Confirme o polling em `/api/hermes/status/{run_id}`.
+5. Observe a janela "Contexto vivo": etapa, modelo em chamada, prompt atual, histórico usado, candidatas e eventos recentes.
+6. Verifique que `preference_pair.chosen` e `preference_pair.rejected` aparecem apenas quando o scoring real retorna `chosen_candidate_id` e `rejected_candidate_id`.
+7. Para DPO, use somente os pares em `preference_pair`; o Hermes não cria baseline sintética para preencher `chosen/rejected`.
 
 ## 📊 Estrutura do Projeto
 

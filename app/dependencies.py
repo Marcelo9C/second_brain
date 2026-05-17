@@ -296,3 +296,34 @@ def get_rubric_candidate_scoring_service() -> RubricCandidateScoringService:
         },
         default_provider="ollama",
     )
+
+
+@lru_cache
+def get_hermes_orchestrator():
+    from app.services.hermes.hermes_orchestrator import HermesOrchestrator
+
+    settings = get_settings()
+    return HermesOrchestrator(
+        providers={
+            "ollama": OllamaProvider(
+                base_url=settings.ollama_base_url,
+                fallback_model=settings.localization_rubric_model,
+            ),
+            "gemini": GeminiProvider(
+                api_key=settings.gemini_api_key,
+                base_url=settings.gemini_base_url,
+                default_model=settings.gemini_default_model,
+                models=settings.gemini_models,
+            ),
+        },
+        scoring_service=get_rubric_candidate_scoring_service(),
+        localization_service=get_localization_service(),
+        default_provider="ollama",
+    )
+
+
+@lru_cache
+def get_hermes_advisor():
+    from app.services.hermes.hermes_advisor import HermesAdvisor
+
+    return HermesAdvisor()

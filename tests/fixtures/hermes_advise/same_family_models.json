@@ -1,0 +1,21 @@
+{
+  "request": {
+    "objective": "generate_dpo_pairs",
+    "context": {
+      "current_models": {
+        "generation": "llama3.2:3b",
+        "judge": "llama3.2:3b"
+      }
+    },
+    "constraints": {},
+    "user_preferences": {}
+  },
+  "snapshot": {
+    "actions": ["diversify_model_families"],
+    "confidences": {
+      "diversify_model_families": 0.92
+    },
+    "rules_triggered": ["model_independence"],
+    "response_hash": "c961f147b54da51e09d9e6edc949ca25853790f767dc11b676f3abd133bd9332"
+  }
+}

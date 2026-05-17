@@ -1,0 +1,113 @@
+cases:
+  - id: "001"
+    name: "Same family models"
+    given:
+      objective: "generate_dpo_pairs"
+      context:
+        current_models:
+          generation: "llama3.2:3b"
+          judge: "llama3.2:3b"
+    expect:
+      recommendation: "diversify_model_families"
+      reason: "shared_family_may_reduce_judgment_independence"
+      confidence: 0.92
+      requires_confirmation: true
+
+  - id: "002"
+    name: "Weak rubric"
+    given:
+      objective: "generate_dpo_pairs"
+      context:
+        rubric:
+          criteria_count: 2
+    expect:
+      recommendation: "increase_rubric_complexity"
+      reason: "low_criteria_may_reduce_signal_quality"
+      confidence: 0.88
+      requires_confirmation: true
+
+  - id: "003"
+    name: "Low margin"
+    given:
+      objective: "generate_dpo_pairs"
+      context:
+        result:
+          margin: 0.2
+        current_thresholds:
+          margin: 1.0
+    expect:
+      recommendation: "rerun_with_harder_prompt"
+      reason: "insufficient_separation_between_candidates"
+      confidence: 0.90
+      requires_confirmation: true
+
+  - id: "004"
+    name: "Single turn overfit"
+    given:
+      objective: "generate_dpo_pairs"
+      context:
+        num_conversations: 1
+        num_turns: 1
+    expect:
+      recommendation: "increase_run_depth_before_export"
+      reason: "single_turn_runs_are_smoke_tests_not_dataset_evidence"
+      confidence: 0.84
+      requires_confirmation: true
+
+  - id: "005"
+    name: "Judge conflict"
+    given:
+      objective: "generate_dpo_pairs"
+      context:
+        judge_conflict: true
+    expect:
+      recommendation: "send_pair_to_human_review"
+      reason: "judge_signal_conflict_requires_human_resolution"
+      confidence: 0.86
+      requires_confirmation: true
+
+  - id: "006"
+    name: "Missing margin threshold"
+    given:
+      objective: "generate_dpo_pairs"
+      context:
+        result:
+          margin: 0.7
+    expect:
+      recommendation: "define_margin_threshold"
+      reason: "preference_margin_without_threshold_blocks_reliable_acceptance"
+      confidence: 0.89
+      requires_confirmation: true
+
+  - id: "007"
+    name: "Missing model provenance"
+    given:
+      objective: "generate_dpo_pairs"
+      context:
+        model_provenance_required: true
+        current_models:
+          generation: "llama3.2:3b"
+          judge: "phi3:mini"
+        model_provenance:
+          generation:
+            selected_by: "user"
+    expect:
+      recommendation: "record_model_selection_provenance"
+      reason: "model_choices_need_selected_by_reason_and_confirmation_state"
+      confidence: 0.91
+      requires_confirmation: true
+
+  - id: "008"
+    name: "Local-only low model diversity"
+    given:
+      objective: "generate_dpo_pairs"
+      context:
+        available_models:
+          - "llama3.2:3b"
+      constraints:
+        local_only: true
+    expect:
+      recommendation: "add_distinct_local_model_before_judging"
+      reason: "local_only_constraint_has_insufficient_model_family_diversity"
+      confidence: 0.82
+      requires_confirmation: true

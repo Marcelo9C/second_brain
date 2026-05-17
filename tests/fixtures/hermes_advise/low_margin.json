@@ -1,0 +1,23 @@
+{
+  "request": {
+    "objective": "generate_dpo_pairs",
+    "context": {
+      "result": {
+        "margin": 0.2
+      },
+      "current_thresholds": {
+        "margin": 1.0
+      }
+    },
+    "constraints": {},
+    "user_preferences": {}
+  },
+  "snapshot": {
+    "actions": ["rerun_with_harder_prompt"],
+    "confidences": {
+      "rerun_with_harder_prompt": 0.9
+    },
+    "rules_triggered": ["preference_margin"],
+    "response_hash": "b9a1b690952c2cb7bd466093abae3ce73c3e59f82d0382c2af8309ae94ba7594"
+  }
+}

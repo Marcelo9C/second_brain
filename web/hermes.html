@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hermes Orchestrator | Second Brain</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="top-tabbar">
+      <a class="top-brand" href="/index.html">Second Brain - MLOps</a>
+      <nav class="top-tabs" aria-label="Lab navigation">
+        <a href="/index.html" class="top-tab">Single Chat</a>
+        <a href="/sxs.html" class="top-tab">Evaluation</a>
+        <a href="/localization_rubric_lab.html" class="top-tab">Localization</a>
+        <a href="/smfp.html" class="top-tab">SMFP</a>
+        <a href="/smfp_governance.html" class="top-tab">Governance</a>
+      </nav>
+    </header>
+
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <p class="eyebrow">Archived Prototype</p>
+          <h1>Hermes v0</h1>
+          <p class="subtle">
+            Superseded by ADR-0001. Mantido para investigacao forense do identity gap.
+          </p>
+        </div>
+
+        <section class="lab-card">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Run</p>
+              <h2>Configuração</h2>
+            </div>
+          </div>
+
+          <form id="hermes-form" class="form-stack" novalidate>
+            <label>
+              <span>Rubric case</span>
+              <select id="rubric-case" required>
+                <option value="">Carregando casos...</option>
+              </select>
+            </label>
+
+            <div class="field-grid">
+              <label>
+                <span>Locale</span>
+                <input id="locale" type="text" value="pt-BR" />
+              </label>
+              <label>
+                <span>Categoria</span>
+                <input id="category" type="text" placeholder="Writing" />
+              </label>
+            </div>
+
+            <label>
+              <span>Persona</span>
+              <input id="persona-name" type="text" value="Cliente impaciente" required />
+            </label>
+
+            <label>
+              <span>Contexto</span>
+              <input id="persona-context" type="text" value="Suporte de produto digital" required />
+            </label>
+
+            <label>
+              <span>Perfil</span>
+              <textarea id="persona-profile" rows="4" required>Usuário frustrado, com pouco tempo, que fornece informação incompleta e espera uma solução prática.</textarea>
+            </label>
+
+            <label>
+              <span>Modelo de stress/user</span>
+              <input id="stress-model" type="text" list="model-options" placeholder="Carregando modelos..." />
+            </label>
+
+            <label>
+              <span>Modelo assistant</span>
+              <input id="assistant-model" type="text" list="model-options" placeholder="Carregando modelos..." />
+            </label>
+
+            <div class="field-grid compact">
+              <label>
+                <span>Temp baixa</span>
+                <input id="temperature-low" type="number" min="0" max="2" step="0.1" value="0.2" />
+              </label>
+              <label>
+                <span>Temp alta</span>
+                <input id="temperature-high" type="number" min="0" max="2" step="0.1" value="0.8" />
+              </label>
+              <label>
+                <span>Conversas</span>
+                <input id="num-conversations" type="number" min="1" max="100" step="1" value="1" />
+              </label>
+              <label>
+                <span>Turnos</span>
+                <input id="num-turns" type="number" min="1" max="10" step="1" value="1" />
+              </label>
+              <label>
+                <span>Janela</span>
+                <input id="max-history-turns" type="number" min="0" max="10" step="1" value="1" />
+              </label>
+              <label>
+                <span>Scoring model</span>
+                <input id="scoring-model" type="text" list="model-options" placeholder="Carregando modelos..." />
+              </label>
+            </div>
+
+            <datalist id="model-options"></datalist>
+
+            <div class="actions">
+              <button id="start-run" type="submit">Iniciar run</button>
+              <button id="cancel-run" class="ghost danger" type="button" disabled>Cancelar</button>
+              <button id="refresh-runs" class="ghost" type="button">Atualizar</button>
+            </div>
+          </form>
+        </section>
+      </aside>
+
+      <main class="workspace hermes-workspace">
+        <section class="conversation-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Status</p>
+              <h2 id="run-title">Nenhuma run ativa</h2>
+            </div>
+            <span id="run-status" class="badge neutral">idle</span>
+          </div>
+
+          <div id="run-summary" class="state-summary neutral">
+            Selecione um rubric case e inicie uma run para acompanhar o progresso.
+          </div>
+
+          <div class="hermes-metrics">
+            <div><span>Resultados</span><strong id="metric-results">0</strong></div>
+            <div><span>Persona</span><strong id="metric-persona">n/d</strong></div>
+            <div><span>Conversa</span><strong id="metric-conversation">n/d</strong></div>
+            <div><span>Turno</span><strong id="metric-turn">n/d</strong></div>
+          </div>
+
+          <div class="hermes-live-panel" aria-live="polite">
+            <div>
+              <span>Backend</span>
+              <strong id="live-backend">verificando</strong>
+            </div>
+            <div>
+              <span>Ollama/modelos</span>
+              <strong id="live-models">verificando</strong>
+            </div>
+            <div>
+              <span>Etapa atual</span>
+              <strong id="live-stage">idle</strong>
+            </div>
+            <div>
+              <span>Modelo em chamada</span>
+              <strong id="live-model">n/d</strong>
+            </div>
+            <div>
+              <span>Ultimo polling</span>
+              <strong id="live-poll">n/d</strong>
+            </div>
+          </div>
+
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Contexto vivo</p>
+              <h2>Janela do Hermes</h2>
+            </div>
+          </div>
+          <div class="hermes-context-window" aria-live="polite">
+            <div class="hermes-context-grid">
+              <section>
+                <span>Persona</span>
+                <pre id="context-persona">n/d</pre>
+              </section>
+              <section>
+                <span>Prompt atual</span>
+                <pre id="context-prompt">n/d</pre>
+              </section>
+              <section>
+                <span>Historico usado</span>
+                <pre id="context-history">n/d</pre>
+              </section>
+              <section>
+                <span>Candidatas recentes</span>
+                <pre id="context-candidates">n/d</pre>
+              </section>
+            </div>
+            <section class="hermes-event-log">
+              <span>Eventos</span>
+              <ol id="context-events"></ol>
+            </section>
+          </div>
+
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Dataset preview</p>
+              <h2>Pares chosen/rejected</h2>
+            </div>
+          </div>
+          <div id="results-list" class="hermes-results">
+            <div class="empty-state">Nenhum resultado ainda.</div>
+          </div>
+        </section>
+
+        <section class="sidepanel">
+          <div class="panel-header tight">
+            <div>
+              <p class="eyebrow">Histórico</p>
+              <h2>Runs recentes</h2>
+            </div>
+          </div>
+          <div id="runs-list" class="history-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script defer src="/session_orchestrator.js"></script>
+    <script defer src="/hermes.js"></script>
+  </body>
+</html>
