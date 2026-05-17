@@ -39,7 +39,13 @@ class BaseProvider(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def generate(self, *, prompt: ProviderPrompt | str, model: str | None = None) -> ProviderResult:
+    def generate(
+        self,
+        *,
+        prompt: ProviderPrompt | str,
+        model: str | None = None,
+        temperature: float | None = None,
+    ) -> ProviderResult:
         raise NotImplementedError
 
     def default_model(self) -> str | None:

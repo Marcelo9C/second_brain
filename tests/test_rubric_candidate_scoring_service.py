@@ -57,7 +57,13 @@ class FakeScoringProvider(BaseProvider):
     def list_models(self) -> list[dict]:
         return [{"name": "fake-model"}]
 
-    def generate(self, *, prompt: ProviderPrompt | str, model: str | None = None) -> ProviderResult:
+    def generate(
+        self,
+        *,
+        prompt: ProviderPrompt | str,
+        model: str | None = None,
+        temperature: float | None = None,
+    ) -> ProviderResult:
         self.calls += 1
         self.last_prompt = prompt
         if self.fail:
@@ -139,6 +145,50 @@ class RubricCandidateScoringServiceTest(unittest.TestCase):
         prompt = provider.last_prompt.as_text()
         self.assertIn("For negative-weight rubrics", prompt)
         self.assertIn("score_factor 1 means the penalty fully applies", prompt)
+
+    def test_accepts_candidate_score_maps_from_local_judges(self) -> None:
+        provider = FakeScoringProvider(
+            response_text=json.dumps(
+                {
+                    "candidate_scores": {
+                        "A": {
+                            "1": {
+                                "score_factor": 1,
+                                "judgment": "met",
+                                "rationale": "Strong structure.",
+                            },
+                            "2": {
+                                "score_factor": 0,
+                                "judgment": "not_met",
+                                "rationale": "No penalty.",
+                            },
+                        },
+                        "B": {
+                            "1": {
+                                "score_factor": 0.5,
+                                "judgment": "partial",
+                                "rationale": "Partial structure.",
+                            },
+                            "2": {
+                                "score_factor": 1,
+                                "judgment": "met",
+                                "rationale": "Penalty applies.",
+                            },
+                        },
+                    }
+                }
+            )
+        )
+
+        result = self.service(provider).score(scoring_payload())
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["candidate_scores"][0]["candidate_id"], "A")
+        self.assertEqual(result["candidate_scores"][0]["total_score"], 10)
+        self.assertEqual(result["candidate_scores"][1]["candidate_id"], "B")
+        self.assertEqual(result["candidate_scores"][1]["total_score"], -1)
+        self.assertEqual(result["preference"]["chosen_candidate_id"], "A")
+        self.assertEqual(result["preference"]["rejected_candidate_id"], "B")
 
     def test_rejects_missing_candidate_score(self) -> None:
         provider = FakeScoringProvider(

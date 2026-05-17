@@ -16,5 +16,11 @@ class OpenAIProvider(BaseProvider):
     def list_models(self) -> list[dict[str, Any]]:
         return []
 
-    def generate(self, *, prompt: ProviderPrompt | str, model: str | None = None) -> ProviderResult:
+    def generate(
+        self,
+        *,
+        prompt: ProviderPrompt | str,
+        model: str | None = None,
+        temperature: float | None = None,
+    ) -> ProviderResult:
         raise ProviderError("OpenAI provider is not implemented yet.")

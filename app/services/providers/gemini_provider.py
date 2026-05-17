@@ -42,7 +42,13 @@ class GeminiProvider(BaseProvider):
     def default_model(self) -> str | None:
         return self.default_model_name
 
-    def generate(self, *, prompt: ProviderPrompt | str, model: str | None = None) -> ProviderResult:
+    def generate(
+        self,
+        *,
+        prompt: ProviderPrompt | str,
+        model: str | None = None,
+        temperature: float | None = None,
+    ) -> ProviderResult:
         if not self.api_key:
             raise ProviderError("Gemini API key is not configured.")
 
@@ -59,7 +65,7 @@ class GeminiProvider(BaseProvider):
         )
         task_payload = prompt.task_payload if isinstance(prompt, ProviderPrompt) else prompt
         generation_config: dict[str, Any] = {
-            "temperature": 0.0,
+            "temperature": 0.0 if temperature is None else temperature,
             "maxOutputTokens": 4096,
             "responseMimeType": "application/json",
         }

@@ -51,7 +51,13 @@ class OllamaProvider(BaseProvider):
     def default_model(self) -> str | None:
         return self.fallback_model
 
-    def generate(self, *, prompt: ProviderPrompt | str, model: str | None = None) -> ProviderResult:
+    def generate(
+        self,
+        *,
+        prompt: ProviderPrompt | str,
+        model: str | None = None,
+        temperature: float | None = None,
+    ) -> ProviderResult:
         model_name = model or self.fallback_model
         exact_url_called = f"{self.base_url}/api/chat"
         system_content = (
@@ -71,7 +77,7 @@ class OllamaProvider(BaseProvider):
             ],
             "stream": False,
             "options": {
-                "temperature": 0.1,
+                "temperature": 0.1 if temperature is None else temperature,
                 "top_p": 0.9,
                 "top_k": 40,
                 "num_predict": 1200,

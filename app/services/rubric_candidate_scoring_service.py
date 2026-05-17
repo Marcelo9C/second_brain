@@ -289,6 +289,14 @@ class RubricCandidateScoringService:
         candidates: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         raw_candidate_scores = parsed.get("candidate_scores")
+        if isinstance(raw_candidate_scores, dict):
+            raw_candidate_scores = [
+                {
+                    "candidate_id": candidate_id,
+                    "rubric_scores": rubric_scores,
+                }
+                for candidate_id, rubric_scores in raw_candidate_scores.items()
+            ]
         if not isinstance(raw_candidate_scores, list):
             raise ValueError("candidate_scores must be a JSON array.")
 
@@ -354,6 +362,15 @@ class RubricCandidateScoringService:
         raw_rubric_scores: Any,
         rubric_by_index: dict[int, dict[str, Any]],
     ) -> list[dict[str, Any]]:
+        if isinstance(raw_rubric_scores, dict):
+            raw_rubric_scores = [
+                {
+                    **raw_score,
+                    "rubric_index": self._coerce_int(rubric_index),
+                }
+                for rubric_index, raw_score in raw_rubric_scores.items()
+                if isinstance(raw_score, dict)
+            ]
         if not isinstance(raw_rubric_scores, list):
             raise ValueError("rubric_scores must be a JSON array.")
 
@@ -401,6 +418,12 @@ class RubricCandidateScoringService:
         if missing_indexes:
             raise ValueError("rubric_scores missing rubrics: " + ", ".join(map(str, missing_indexes)) + ".")
         return sorted(scores, key=lambda item: item["rubric_index"])
+
+    def _coerce_int(self, value: Any) -> Any:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return value
 
     def _preference(self, candidate_scores: list[dict[str, Any]]) -> dict[str, Any]:
         ranked = sorted(candidate_scores, key=lambda item: item["total_score"], reverse=True)
