@@ -1,104 +1,137 @@
-# 🧪 Second Brain App: LLM Experimentation Lab
+# Second Brain App: AI Evaluation And Training Lab
 
-**"From test console to scientific lab"**
+**From test console to scientific lab**
 
-An advanced LLM experimentation environment for Supervised Fine-Tuning (SFT), Reinforcement Learning from Human Feedback (RLHF), and Retrieval-Augmented Generation (RAG). 
+Second Brain is an internal AI evaluation, training, provenance, and governance
+lab. It is not an autonomous agentic operating system. Its job is to test,
+measure, evaluate, generate datasets, calibrate rubrics, and audit evidence
+before any future operational system is allowed to act on that evidence.
 
-This platform allows AI engineers and researchers to run deterministic parallel inferences, evaluate models blindly Side-by-Side (SxS), and generate gold-standard JSONL datasets for local fine-tuning.
+The lab supports SFT, RLHF, DPO-style preference data, Side-by-Side (SxS)
+evaluation, Retrieval-Augmented Generation (RAG), localization rubric
+calibration, synthetic media provenance, and Hermes advisory diagnostics.
 
-## ✨ Core Features
+## Operating Model
 
-* **Deterministic Parallel Inference:** Run two distinct models (or two distinct prompts) simultaneously against the same parameters and RAG context.
-* **Blind SxS Evaluation:** Eliminate human bias with default blind testing. Model identities are only revealed after the evaluation is submitted.
-* **Semantic Visual Diffs:** Word-level text diffing (powered by `jsdiff`) to instantly spot hallucinations, omissions, or tone shifts between outputs.
-* **Gold-Standard Data Export:** Automatically export human-annotated evaluations (chosen/rejected pairs and rationales) into JSONL format, ready for SFT or Reward Model training.
-* **Advanced RAG Pipeline:** Go beyond basic cosine similarity. Features metadata pre-filtering (by section, title, and date) and strict deterministic ordering.
+The canonical lab operating model is defined in:
 
-## 🏗️ Architecture (DDD approach)
+- [Second Brain Lab Operating Model](docs/second_brain_lab_operating_model.md)
 
-Built with a clean, modular architecture separating HTTP routes, business logic, and data persistence:
+That document defines:
 
-* **Backend:** FastAPI (Python)
-* **Database:** PostgreSQL with `pgvector`
-* **Frontend:** Vanilla JS/HTML with KaTeX for mathematical rendering.
-* **LLM Orchestration:** Agnostic API layer (Local integration via Ollama, easily extensible).
+- what counts as an experiment;
+- what counts as evidence;
+- what counts as an approved artifact;
+- what may be promoted into a dataset;
+- what requires human review;
+- what Hermes may consume;
+- what remains temporary diagnostics only.
+
+## Core Features
+
+- **Deterministic Parallel Inference:** run two models or prompt variants with
+  controlled generation parameters and comparable context.
+- **Blind SxS Evaluation:** hide model identity until the evaluation is
+  submitted to reduce evaluator bias.
+- **Dataset Export:** export reviewed SFT and DPO-style data from human
+  annotations and chosen/rejected pairs.
+- **Localization Rubric Lab:** create, generate, validate, review, and approve
+  rubric cases through explicit quality gates.
+- **RAG Pipeline:** retrieve document chunks through `pgvector`, metadata
+  filters, deterministic ordering, and retrieval traces.
+- **SMFP Provenance:** hash, sign, manifest, revise, and verify synthetic media
+  artifacts.
+- **Hermes Advise:** deterministic, no-side-effect recommendations for lab
+  experiment diagnostics.
+
+## Architecture
+
+Built with a clean, modular architecture separating HTTP routes, schemas,
+business logic, and persistence:
+
+- **Backend:** FastAPI (Python)
+- **Database:** PostgreSQL with `pgvector`
+- **Frontend:** Vanilla JS/HTML
+- **LLM Providers:** local Ollama and provider adapters
+- **Validation:** Pydantic schemas, service-level tests, contract documents
 
 ```text
 app/
-├── api/          # FastAPI Routes (experiments, annotations, rag)
-├── core/         # Configs and environments
-├── repositories/ # Database interactions and pgvector semantic search
-├── schemas/      # Pydantic models for validation
-└── services/     # Business logic (LLM Orchestrator, RAG Pipeline)
+├── api/          # FastAPI routes
+├── core/         # settings and environment configuration
+├── repositories/ # database access and pgvector retrieval
+├── schemas/      # Pydantic request/response contracts
+└── services/     # lab services, orchestration, RAG, Hermes, SMFP
 ```
 
-## 📖 Documentation & Extension
+## Documentation
 
-For deep dives into the system design and guides on how to connect your own APIs:
+- [Architecture Guide](ARCHITECTURE.md)
+- [Second Brain Lab Operating Model](docs/second_brain_lab_operating_model.md)
+- [Hermes Fallacy ADR](docs/adr_0001_the_hermes_fallacy.md)
+- [Hermes Advise Cooldown](docs/hermes_advise_cooldown.md)
+- [Localization Rubric Lab Contract](docs/localization_rubric_lab_contract.md)
+- [SMFP v1](docs/smfp_v1.md)
+- [Integration Guide](INTEGRATION_GUIDE.md)
 
-- **[Architecture Guide](ARCHITECTURE.md)**: Logic flow, DDD structure, and RAG mechanics.
-- **[Integration Guide](INTEGRATION_GUIDE.md)**: Step-by-Step guide for **Gemini API** and **Supabase** (pgvector).
+## Running Locally
 
-## 🚀 Como Rodar
+### Environment note
 
-### Nota de ambiente
-
-O Python padrão do shell pode apontar para outro venv, como `hermes-agent`.
-Para executar testes, servidor e jobs do projeto, use sempre:
+The default Python in the shell can point to another virtual environment, such
+as `hermes-agent`. For tests, server runs, and project jobs, use:
 
 ```powershell
 .\.venv\Scripts\python.exe
 ```
 
-Esse ambiente possui as dependências corretas do projeto, incluindo `psycopg`.
+1. Ensure Ollama is running at `http://127.0.0.1:11434`.
+2. Configure the environment:
 
-1. Garanta que o Ollama esteja ativo em `http://127.0.0.1:11434`
-2. Configure o ambiente:
    ```powershell
    cp .env.example .env
-   # Ajuste as variáveis se necessário
    ```
-3. Suba o PostgreSQL com Docker Compose:
+
+3. Start PostgreSQL:
+
    ```powershell
    docker compose up -d
    ```
-4. Inicialize o banco local:
+
+4. Initialize the local database:
+
    ```powershell
    .\.venv\Scripts\python.exe db_init.py
    ```
-5. Execute o backend:
+
+5. Run the backend:
+
    ```powershell
    .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
    ```
-6. Acesse: `http://127.0.0.1:8765`
 
-### Hermes smoke test
+6. Open `http://127.0.0.1:8765`.
 
-Status: archived prototype. O Hermes v0 foi removido da navegação principal e
-mantido por URL direta como evidência forense do identity gap descrito em
-`docs/adr_0001_the_hermes_fallacy.md`.
+## Hermes Status
 
-Hermes Advisor está disponível por URL direta em `/hermes_advise.html` para
-diagnóstico sem efeitos colaterais via `POST /api/hermes/advise`.
-Versão interna: `hermes-advise-v1.1-stability-green`.
-Uso do endpoint: `docs/hermes_advise_endpoint_usage.md`.
-Changelog: `docs/hermes_changelog.md`.
+Hermes v0 is an archived prototype kept outside main navigation as forensic
+evidence of the identity gap described in
+[ADR 0001](docs/adr_0001_the_hermes_fallacy.md).
 
-Para validar o orquestrador ponta a ponta:
+Hermes Advisor is available directly at `/hermes_advise.html` and through
+`POST /api/hermes/advise`. It returns deterministic diagnostics and proposed
+next actions without executing anything.
 
-1. Abra diretamente `http://127.0.0.1:8765/hermes.html`.
-2. Escolha um rubric case com rubricas.
-3. Rode uma configuração pequena: `num_conversations=1`, `num_turns=1`, `max_history_turns=1`.
-4. Confirme o polling em `/api/hermes/status/{run_id}`.
-5. Observe a janela "Contexto vivo": etapa, modelo em chamada, prompt atual, histórico usado, candidatas e eventos recentes.
-6. Verifique que `preference_pair.chosen` e `preference_pair.rejected` aparecem apenas quando o scoring real retorna `chosen_candidate_id` e `rejected_candidate_id`.
-7. Para DPO, use somente os pares em `preference_pair`; o Hermes não cria baseline sintética para preencher `chosen/rejected`.
+Internal version: `hermes-advise-v1.1-stability-green`
 
-## 📊 Estrutura do Projeto
+Hermes Observe may begin only after the Advise cooldown exits by evidence.
+Hermes Act remains out of scope.
 
-- `app/`: backend FastAPI estruturado
-- `db_init.py`: bootstrap do banco PostgreSQL
-- `docker-compose.yml`: PostgreSQL com `pgvector` em `127.0.0.1:5433`
-- `web/`: interface web do laboratório
-- `models/`: modelos locais de embeddings
-- `scripts/download_sentence_transformer.py`: baixa modelos para uso offline
+## Project Structure
+
+- `app/`: FastAPI backend
+- `db_init.py`: PostgreSQL bootstrap
+- `docker-compose.yml`: PostgreSQL with `pgvector` on `127.0.0.1:5433`
+- `web/`: lab interface
+- `models/`: local embedding models
+- `scripts/download_sentence_transformer.py`: offline model download helper

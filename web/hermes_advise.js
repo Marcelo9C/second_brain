@@ -8,6 +8,8 @@ const elements = {
   askHermes: document.querySelector("#ask-hermes"),
 };
 
+let contextSource = "manual";
+
 const exampleContext = {
   current_models: {
     generation: "llama3.2:3b",
@@ -68,7 +70,7 @@ async function askHermes(event) {
   elements.results.innerHTML = '<div class="empty-state">Hermes analisando contrato...</div>';
   try {
     const payload = {
-      objective: elements.objective.value.trim() || "generate_dpo_pairs",
+      objective: elements.objective.value.trim() || "manual_diagnostic",
       context: parseContext(),
       constraints: {},
       user_preferences: {},
@@ -90,7 +92,13 @@ async function askHermes(event) {
 function renderResponse(response) {
   const recommendations = response.recommendations || [];
   if (!recommendations.length) {
-    elements.results.innerHTML = '<div class="empty-state">Nenhuma recomendacao deterministica para este contexto.</div>';
+    elements.results.innerHTML = `
+      <div class="hermes-advise-summary">
+        <span>Source</span>
+        <strong>${sourceLabel()}</strong>
+      </div>
+      <div class="empty-state">Nenhuma recomendacao deterministica para este contexto.</div>
+    `;
     return;
   }
 
@@ -100,6 +108,8 @@ function renderResponse(response) {
   header.innerHTML = `
     <span>Objective</span>
     <strong>${escapeHtml(response.interpreted_objective || "n/d")}</strong>
+    <span>Source</span>
+    <strong>${sourceLabel()}</strong>
   `;
   elements.results.append(header);
 
@@ -145,8 +155,22 @@ function renderResponse(response) {
 }
 
 function loadExample() {
+  contextSource = "synthetic_example";
   elements.objective.value = "generate_dpo_pairs";
   elements.context.value = JSON.stringify(exampleContext, null, 2);
+  setStatus("neutral", "example loaded");
+  elements.results.innerHTML = `
+    <div class="state-summary warning">
+      Exemplo sintetico carregado. Nenhum run real foi lido ou executado.
+      Clique em "Pedir diagnostico" para testar as regras deterministicas.
+    </div>
+  `;
+}
+
+function sourceLabel() {
+  return contextSource === "synthetic_example"
+    ? "synthetic example, not a real run"
+    : "manual context";
 }
 
 function escapeHtml(value) {
@@ -160,4 +184,3 @@ function escapeHtml(value) {
 
 elements.form.addEventListener("submit", askHermes);
 elements.loadExample.addEventListener("click", loadExample);
-loadExample();
