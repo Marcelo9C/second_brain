@@ -15,41 +15,53 @@
         <a href="/localization_rubric_lab.html" class="top-tab">Localization</a>
         <a href="/smfp.html" class="top-tab">SMFP</a>
         <a href="/smfp_governance.html" class="top-tab">Governance</a>
+        <a href="/hermes.html" class="top-tab">Hermes Lab</a>
       </nav>
     </header>
 
     <div class="app-shell">
       <aside class="sidebar">
         <div class="sidebar-head">
-          <p class="eyebrow">Hermes Advisor</p>
-          <h1>Ask Hermes</h1>
+          <p class="eyebrow">Hermes Advise Workbench</p>
+          <h1>Diagnostico Hermes</h1>
           <p class="subtle">
-            Hermes is advising only. No action will be executed.
+            Esta pagina nao le runs automaticamente. Cole um contexto de
+            experimento ou carregue um exemplo sintetico.
           </p>
         </div>
 
         <section class="lab-card">
           <div class="panel-header tight">
             <div>
-              <p class="eyebrow">Request</p>
-              <h2>Diagnostico</h2>
+              <p class="eyebrow">Entrada manual</p>
+              <h2>Contexto do experimento</h2>
             </div>
           </div>
 
           <form id="hermes-advise-form" class="form-stack" novalidate>
             <label>
               <span>Objective</span>
-              <input id="advise-objective" type="text" value="generate_dpo_pairs" required />
+              <input
+                id="advise-objective"
+                type="text"
+                placeholder="ex.: generate_dpo_pairs"
+                required
+              />
             </label>
 
             <label>
               <span>Context JSON</span>
-              <textarea id="advise-context" rows="14" spellcheck="false"></textarea>
+              <textarea
+                id="advise-context"
+                rows="14"
+                spellcheck="false"
+                placeholder="Cole aqui o contexto do experimento. Nada sera executado."
+              ></textarea>
             </label>
 
             <div class="actions">
               <button id="ask-hermes" type="submit">Pedir diagnostico</button>
-              <button id="load-example" class="ghost" type="button">Exemplo</button>
+              <button id="load-example" class="ghost" type="button">Carregar exemplo sintetico</button>
             </div>
           </form>
         </section>
@@ -66,11 +78,15 @@
           </div>
 
           <div class="state-summary neutral">
-            Hermes is advising only. No action will be executed.
+            Nenhum run foi executado nesta tela. O resultado depende apenas do
+            JSON enviado no formulario.
           </div>
 
           <div id="advise-results" class="hermes-advise-results">
-            <div class="empty-state">Envie um contexto para receber diagnostico.</div>
+            <div class="empty-state">
+              Envie um contexto real ou carregue um exemplo sintetico para testar
+              as regras deterministicas do Hermes Advise.
+            </div>
           </div>
         </section>
 
@@ -82,8 +98,12 @@
             </div>
           </div>
           <div class="hermes-advise-contract">
-            <p>Hermes Advise interpreta o experimento e retorna recomendacoes explicaveis.</p>
+            <p>
+              Hermes Advise interpreta o contexto informado e retorna
+              recomendacoes explicaveis.
+            </p>
             <ul>
+              <li>Sem ler runs automaticamente.</li>
               <li>Sem executar runs.</li>
               <li>Sem trocar modelos.</li>
               <li>Sem exportar datasets.</li>

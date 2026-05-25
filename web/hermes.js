@@ -1,4 +1,32 @@
+// Elementos globais mapeados da interface
 const elements = {
+  // Controle de Abas
+  btnTabStudy: document.querySelector("#btn-tab-study"),
+  btnTabAdvisor: document.querySelector("#btn-tab-advisor"),
+  btnTabOrchestrator: document.querySelector("#btn-tab-orchestrator"),
+  tabContentStudy: document.querySelector("#tab-content-study"),
+  tabContentAdvisor: document.querySelector("#tab-content-advisor"),
+  tabContentOrchestrator: document.querySelector("#tab-content-orchestrator"),
+  sidebarDidactic: document.querySelector("#sidebar-didactic"),
+  sidebarAdvisor: document.querySelector("#sidebar-advisor"),
+  sidebarOrchestrator: document.querySelector("#sidebar-orchestrator"),
+
+  // Módulo Didático (Ollama Widgets)
+  didacticOllamaTitle: document.querySelector("#didactic-ollama-title"),
+  didacticOllamaEndpoint: document.querySelector("#didactic-ollama-endpoint"),
+  didacticOllamaModels: document.querySelector("#didactic-ollama-models"),
+
+  // Módulo Advisor (Diagnósticos do Hermes)
+  templateJsonSelect: document.querySelector("#template-json-select"),
+  btnLoadTemplate: document.querySelector("#btn-load-template"),
+  advisorForm: document.querySelector("#hermes-advisor-form"),
+  adviseObjective: document.querySelector("#advise-objective"),
+  adviseContext: document.querySelector("#advise-context"),
+  advisorStatusBadge: document.querySelector("#advisor-status-badge"),
+  advisorResultsArea: document.querySelector("#advisor-results-area"),
+  askHermes: document.querySelector("#ask-hermes"),
+
+  // Módulo Orquestrador (v0)
   form: document.querySelector("#hermes-form"),
   rubricCase: document.querySelector("#rubric-case"),
   locale: document.querySelector("#locale"),
@@ -17,7 +45,6 @@ const elements = {
   modelOptions: document.querySelector("#model-options"),
   startRun: document.querySelector("#start-run"),
   cancelRun: document.querySelector("#cancel-run"),
-  refreshRuns: document.querySelector("#refresh-runs"),
   runTitle: document.querySelector("#run-title"),
   runStatus: document.querySelector("#run-status"),
   runSummary: document.querySelector("#run-summary"),
@@ -37,12 +64,76 @@ const elements = {
   contextHistory: document.querySelector("#context-history"),
   contextCandidates: document.querySelector("#context-candidates"),
   contextEvents: document.querySelector("#context-events"),
+  healthBadge: document.querySelector("#health-badge"),
 };
 
 const state = {
   activeRunId: null,
   pollTimer: null,
   models: [],
+  contextSource: "manual",
+};
+
+// Templates JSON estruturados para estudo didático
+const RUN_TEMPLATES = {
+  sxs_preference: {
+    current_models: {
+      generation: "llama3.2:3b",
+      judge: "llama3.2:3b"
+    },
+    rubric: {
+      criteria_count: 3,
+      allowed_dimensions: ["Natural Language Fluency", "Logic and Formatting"]
+    },
+    result: {
+      margin: 0.15,
+      chosen_candidate: "candidate_a",
+      rejected_candidate: "candidate_b"
+    },
+    current_thresholds: {
+      margin: 0.50
+    },
+    num_conversations: 5,
+    num_turns: 3
+  },
+  rubric_calibration: {
+    rubric_case_id: "case-calib-ptbr-01",
+    locale: "pt-BR",
+    category: "Writing",
+    status: "draft",
+    validation: {
+      structure_pass: true,
+      format_pass: false,
+      mismatch_detected: true
+    },
+    rubrics: [
+      {
+        id: "rubric-01",
+        dimension: "Natural Language Fluency",
+        score: 4
+      }
+    ]
+  },
+  rag_retrieval: {
+    embedding_model: "nomic-embed-text",
+    corpus_version: "v1",
+    query: "como configurar o assistente hermes?",
+    retrieved_chunks: [
+      {
+        rank: 1,
+        similarity: 0.88,
+        source: "manual.pdf",
+        tokens: 120
+      },
+      {
+        rank: 2,
+        similarity: 0.72,
+        source: "architecture.md",
+        tokens: 310
+      }
+    ],
+    selected_for_prompt_count: 1
+  }
 };
 
 const ALLOWED_RUBRIC_DIMENSIONS = new Set([
@@ -52,6 +143,180 @@ const ALLOWED_RUBRIC_DIMENSIONS = new Set([
   "Natural Language Fluency",
 ]);
 
+// -------------------------------------------------------------
+// 1. GERENCIAMENTO DE ABAS
+// -------------------------------------------------------------
+function switchTab(activeBtn, targetContent, targetSidebar) {
+  // Desativa todas as abas
+  [elements.btnTabStudy, elements.btnTabAdvisor, elements.btnTabOrchestrator].forEach(btn => {
+    btn.classList.remove("active");
+  });
+  [elements.tabContentStudy, elements.tabContentAdvisor, elements.tabContentOrchestrator].forEach(content => {
+    content.style.display = "none";
+  });
+  [elements.sidebarDidactic, elements.sidebarAdvisor, elements.sidebarOrchestrator].forEach(sidebar => {
+    sidebar.style.display = "none";
+  });
+
+  // Ativa a aba atual
+  activeBtn.classList.add("active");
+  targetContent.style.display = "block";
+  targetSidebar.style.display = "block";
+}
+
+elements.btnTabStudy.addEventListener("click", () => {
+  switchTab(elements.btnTabStudy, elements.tabContentStudy, elements.sidebarDidactic);
+});
+
+elements.btnTabAdvisor.addEventListener("click", () => {
+  switchTab(elements.btnTabAdvisor, elements.tabContentAdvisor, elements.sidebarAdvisor);
+  // Auto-carrega o primeiro template se o textarea estiver vazio
+  if (!elements.adviseContext.value.trim()) {
+    loadJsonTemplate();
+  }
+});
+
+elements.btnTabOrchestrator.addEventListener("click", () => {
+  switchTab(elements.btnTabOrchestrator, elements.tabContentOrchestrator, elements.sidebarOrchestrator);
+});
+
+// -------------------------------------------------------------
+// 2. MÓDULO ADVISOR (PLAYGROUND INTEGRADO)
+// -------------------------------------------------------------
+function loadJsonTemplate() {
+  const selectedType = elements.templateJsonSelect.value;
+  const template = RUN_TEMPLATES[selectedType];
+  if (template) {
+    elements.adviseContext.value = JSON.stringify(template, null, 2);
+    elements.adviseObjective.value = selectedType === "sxs_preference" ? "generate_dpo_pairs" : selectedType;
+    setAdvisorStatus("neutral", "template loaded");
+    elements.advisorResultsArea.innerHTML = `
+      <div class="state-summary warning">
+        Template carregado com sucesso. Ajuste os campos JSON à direita se desejar e clique em "Pedir Diagnóstico" na barra lateral para simular o Hermes.
+      </div>
+    `;
+  }
+}
+
+elements.btnLoadTemplate.addEventListener("click", loadJsonTemplate);
+
+function setAdvisorStatus(kind, label) {
+  elements.advisorStatusBadge.className = `badge ${kind === "ok" ? "ok" : kind === "warning" ? "warning" : "neutral"}`;
+  elements.advisorStatusBadge.textContent = label;
+}
+
+function parseContext() {
+  const raw = elements.adviseContext.value.trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+      throw new Error("Context JSON precisa ser um objeto.");
+    }
+    return parsed;
+  } catch (error) {
+    throw new Error(`Context JSON inválido: ${error.message}`);
+  }
+}
+
+async function handleAdvisorSubmit(event) {
+  event.preventDefault();
+  setAdvisorStatus("warning", "advising");
+  elements.askHermes.disabled = true;
+  elements.advisorResultsArea.innerHTML = '<div class="empty-state">Hermes analisando contrato do run...</div>';
+  try {
+    const payload = {
+      objective: elements.adviseObjective.value.trim() || "manual_diagnostic",
+      context: parseContext(),
+      constraints: {},
+      user_preferences: {},
+    };
+    const response = await fetchJson("/api/hermes/advise", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    renderAdvisorResponse(response);
+    setAdvisorStatus("ok", "ready");
+  } catch (error) {
+    setAdvisorStatus("offline", "failed");
+    elements.advisorResultsArea.innerHTML = `<div class="state-summary offline">${escapeHtml(error.message)}</div>`;
+  } finally {
+    elements.askHermes.disabled = false;
+  }
+}
+
+function renderAdvisorResponse(response) {
+  const recommendations = response.recommendations || [];
+  if (!recommendations.length) {
+    elements.advisorResultsArea.innerHTML = `
+      <div class="hermes-advise-summary">
+        <span>Objective</span>
+        <strong>${escapeHtml(response.interpreted_objective || "n/d")}</strong>
+        <span>Source</span>
+        <strong>manual diagnostic</strong>
+      </div>
+      <div class="empty-state">Nenhuma recomendação determinística ativa para este contexto JSON.</div>
+    `;
+    return;
+  }
+
+  elements.advisorResultsArea.innerHTML = "";
+  const header = document.createElement("div");
+  header.className = "hermes-advise-summary";
+  header.innerHTML = `
+    <span>Objective</span>
+    <strong>${escapeHtml(response.interpreted_objective || "n/d")}</strong>
+    <span>Source</span>
+    <strong>MLOps Manual Run Ingestion</strong>
+  `;
+  elements.advisorResultsArea.append(header);
+
+  for (const rec of recommendations) {
+    const card = document.createElement("article");
+    card.className = "hermes-advise-card";
+    card.innerHTML = `
+      <header>
+        <div>
+          <span>Ação Proposta</span>
+          <h3>${escapeHtml(rec.action)}</h3>
+        </div>
+        <strong style="color: var(--accent-strong); font-size: 1.1rem;">${Math.round(Number(rec.confidence || 0) * 100)}%</strong>
+      </header>
+      <dl>
+        <dt>Heurística / Motivo</dt>
+        <dd>${escapeHtml(rec.reason)}</dd>
+        <dt>Confirmação humana</dt>
+        <dd>${rec.requires_confirmation ? "Exigida (Gatekeeper Act)" : "Isenta (Observe/Advise)"}</dd>
+        <dt>Regra acionada</dt>
+        <dd><code>${escapeHtml(rec.selected_by || "n/d")}</code></dd>
+      </dl>
+    `;
+    elements.advisorResultsArea.append(card);
+  }
+
+  const diagnosis = response.diagnosis || [];
+  if (diagnosis.length) {
+    const block = document.createElement("section");
+    block.className = "hermes-advise-diagnosis";
+    block.innerHTML = `
+      <span>Diagnósticos Detalhados da Rodada</span>
+      ${diagnosis.map((item) => `
+        <div>
+          <strong>⚠️ ${escapeHtml(item.issue)} · Severidade: ${escapeHtml(item.severity)}</strong>
+          <p><strong>Evidência:</strong> ${escapeHtml(item.evidence)}</p>
+          <p><strong>Impacto MLOps:</strong> ${escapeHtml(item.impact)}</p>
+        </div>
+      `).join("")}
+    `;
+    elements.advisorResultsArea.append(block);
+  }
+}
+
+elements.advisorForm.addEventListener("submit", handleAdvisorSubmit);
+
+// -------------------------------------------------------------
+// 3. MÓDULO ORQUESTRADOR (v0 PROTÓTIPO ORIGINAL)
+// -------------------------------------------------------------
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
     ...options,
@@ -137,13 +402,27 @@ async function loadRuntimeStatus() {
   try {
     const health = await fetchJson("/api/health");
     const ollama = health.ollama || {};
+    
+    // Atualiza widgets globais
+    elements.healthBadge.textContent = health.ok ? "Engine online" : "Engine degradada";
+    elements.healthBadge.className = `badge ${health.ok ? "ok" : "offline"}`;
+    
     elements.liveBackend.textContent = health.ok ? "online" : "degradado";
     elements.liveModels.textContent = ollama.ready
       ? "Ollama pronto; buscando modelos"
-      : (health.error || "Ollama nao pronto");
+      : (health.error || "Ollama não pronto");
+
+    // Atualiza widgets didáticos
+    elements.didacticOllamaTitle.textContent = ollama.ready ? "Ollama Conectado" : "Ollama Indisponível";
+    elements.didacticOllamaEndpoint.textContent = `Endpoint: ${ollama.endpoint || "n/d"}`;
   } catch (error) {
+    elements.healthBadge.textContent = "Engine offline";
+    elements.healthBadge.className = "badge offline";
     elements.liveBackend.textContent = `offline: ${error.message}`;
     elements.liveModels.textContent = "sem leitura";
+    
+    elements.didacticOllamaTitle.textContent = "Ollama Offline";
+    elements.didacticOllamaEndpoint.textContent = `Erro: ${error.message}`;
   }
 
   try {
@@ -153,14 +432,17 @@ async function loadRuntimeStatus() {
     if (state.models.length) {
       const preferred = state.models.find((name) => name.includes("llama3.2")) || state.models[0];
       for (const input of [elements.stressModel, elements.assistantModel, elements.scoringModel]) {
-        if (!textValue(input)) input.value = preferred;
+        if (input && !textValue(input)) input.value = preferred;
       }
-      elements.liveModels.textContent = `${state.models.length} modelo(s): ${compactText(state.models.join(", "), 80)}`;
+      elements.liveModels.textContent = `${state.models.length} modelo(s) carregados`;
+      elements.didacticOllamaModels.textContent = `Modelos: ${state.models.join(", ")}`;
     } else {
       elements.liveModels.textContent = "nenhum modelo local retornado";
+      elements.didacticOllamaModels.textContent = "Modelos: nenhum encontrado";
     }
   } catch (error) {
     elements.liveModels.textContent = `falha: ${error.message}`;
+    elements.didacticOllamaModels.textContent = `Modelos: falha ao buscar`;
   }
 }
 
@@ -221,7 +503,7 @@ async function loadRuns() {
 function renderRuns(runs) {
   elements.runsList.innerHTML = "";
   if (!runs.length) {
-    elements.runsList.innerHTML = '<div class="empty-state">Nenhuma run registrada.</div>';
+    elements.runsList.innerHTML = '<div class="empty-state">Nenhuma run registrada no laboratório.</div>';
     return;
   }
   for (const run of runs) {
@@ -242,7 +524,7 @@ function renderRuns(runs) {
   }
 }
 
-async function startRun(event) {
+async function handleRunSubmit(event) {
   event.preventDefault();
   if (!elements.rubricCase.value) {
     setStatus("failed", "Escolha um rubric case com rubricas antes de iniciar.");
@@ -345,7 +627,7 @@ function formatContextValue(value) {
 async function cancelActiveRun() {
   if (!state.activeRunId) return;
   elements.cancelRun.disabled = true;
-  setStatus("pending", "Cancelamento solicitado; aguardando a chamada atual do modelo terminar...");
+  setStatus("pending", "Cancelamento solicitado; aguardando término da tarefa de inferência...");
   try {
     const run = await fetchJson(`/api/hermes/runs/${state.activeRunId}/cancel`, {
       method: "POST",
@@ -409,18 +691,14 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-elements.form.addEventListener("submit", startRun);
+elements.form.addEventListener("submit", handleRunSubmit);
 elements.cancelRun.addEventListener("click", cancelActiveRun);
-elements.refreshRuns.addEventListener("click", async () => {
-  await loadRuntimeStatus();
-  await loadRuns();
-  if (state.activeRunId) {
-    await pollActiveRun();
-  }
-});
 
+// Inicialização
 loadRubricCases();
 loadRuntimeStatus();
 loadRuns().catch((error) => {
   elements.runsList.innerHTML = `<div class="empty-state">Falha ao carregar runs: ${escapeHtml(error.message)}</div>`;
 });
+// Atualizações periódicas de status da engine
+setInterval(loadRuntimeStatus, 10000);

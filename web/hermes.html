@@ -3,8 +3,251 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hermes Orchestrator | Second Brain</title>
+    <title>Hermes Lab | Second Brain</title>
     <link rel="stylesheet" href="/styles.css" />
+    <style>
+      .sub-tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 24px;
+        border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+        padding-bottom: 12px;
+      }
+      .sub-tab-btn {
+        background: transparent;
+        border: 1px solid transparent;
+        color: var(--muted);
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-weight: 700;
+        font-size: 0.88rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        box-shadow: none;
+      }
+      .sub-tab-btn:hover {
+        background: rgba(15, 23, 42, 0.04);
+        color: var(--text);
+        transform: none;
+        box-shadow: none;
+      }
+      .sub-tab-btn.active {
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+        border-color: rgba(0, 220, 130, 0.2);
+      }
+      .guided-flow-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 20px;
+        margin: 20px 0;
+      }
+      @media (min-width: 768px) {
+        .guided-flow-grid {
+          grid-template-columns: repeat(4, 1fr);
+        }
+      }
+      .flow-step-card {
+        background: var(--panel-strong);
+        border: 1px solid var(--border-strong);
+        padding: 16px;
+        border-radius: var(--radius);
+        position: relative;
+        text-align: center;
+      }
+      .flow-step-card strong {
+        display: block;
+        font-size: 1.1rem;
+        margin-bottom: 8px;
+        color: var(--text);
+      }
+      .flow-step-card span {
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .flow-step-card::after {
+        content: "→";
+        position: absolute;
+        right: -10px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 1.5rem;
+        color: var(--accent);
+        z-index: 10;
+        display: none;
+      }
+      @media (min-width: 768px) {
+        .flow-step-card:not(:last-child)::after {
+          display: block;
+        }
+      }
+      .didactic-section {
+        margin-bottom: 32px;
+      }
+      .didactic-section h3 {
+        font-family: var(--font-heading);
+        font-size: 1.25rem;
+        margin-bottom: 12px;
+        color: var(--text);
+      }
+      .didactic-section p {
+        color: var(--muted);
+        line-height: 1.6;
+        margin-bottom: 16px;
+      }
+      .didactic-list {
+        margin: 0 0 20px 20px;
+        padding: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+      .didactic-list li {
+        margin-bottom: 8px;
+      }
+      .didactic-list li strong {
+        color: var(--text);
+      }
+      .didactic-highlight {
+        background: linear-gradient(135deg, rgba(0, 220, 130, 0.04) 0%, rgba(6, 148, 148, 0.04) 100%);
+        border: 1px solid rgba(0, 220, 130, 0.15);
+        padding: 20px;
+        border-radius: var(--radius);
+        margin: 20px 0;
+      }
+      .template-selector-block {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+      }
+      .template-selector-block select {
+        flex: 1;
+        min-width: 200px;
+      }
+      .explain-keys-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+        margin-top: 16px;
+      }
+      @media (min-width: 600px) {
+        .explain-keys-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .explain-key-item {
+        background: var(--panel-strong);
+        border: 1px solid var(--border-strong);
+        padding: 12px;
+        border-radius: 8px;
+      }
+      .explain-key-item code {
+        font-family: monospace;
+        font-weight: 700;
+        color: var(--accent-strong);
+        display: block;
+        margin-bottom: 4px;
+      }
+      .explain-key-item span {
+        font-size: 0.85rem;
+        color: var(--muted);
+        line-height: 1.4;
+        display: block;
+      }
+      .hermes-advise-card {
+        background: #f8fafc;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius);
+        padding: 16px;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+      }
+      .hermes-advise-card header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .hermes-advise-card header h3 {
+        margin: 0;
+        font-family: var(--font-heading);
+        font-size: 1rem;
+        color: var(--text);
+      }
+      .hermes-advise-card header span {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        font-weight: 800;
+        color: var(--muted);
+      }
+      .hermes-advise-card dl {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 8px 16px;
+        margin: 0;
+        font-size: 0.88rem;
+      }
+      .hermes-advise-card dt {
+        font-weight: 700;
+        color: var(--muted);
+      }
+      .hermes-advise-card dd {
+        margin: 0;
+        color: var(--text);
+      }
+      .hermes-advise-diagnosis {
+        background: #fff8f6;
+        border: 1px solid rgba(255, 94, 58, 0.15);
+        border-radius: var(--radius);
+        padding: 16px;
+        margin-top: 16px;
+      }
+      .hermes-advise-diagnosis > span {
+        font-size: 0.75rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        color: var(--warm);
+        letter-spacing: 0.08em;
+        display: block;
+        margin-bottom: 12px;
+      }
+      .hermes-advise-diagnosis div {
+        border-left: 2px solid var(--warm);
+        padding-left: 12px;
+        margin-bottom: 12px;
+      }
+      .hermes-advise-diagnosis div:last-child {
+        margin-bottom: 0;
+      }
+      .hermes-advise-diagnosis strong {
+        font-size: 0.92rem;
+        color: var(--text);
+        display: block;
+        margin-bottom: 4px;
+      }
+      .hermes-advise-diagnosis p {
+        margin: 0 0 4px;
+        font-size: 0.88rem;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+      .hermes-advise-summary {
+        background: var(--panel-strong);
+        border: 1px solid var(--border-strong);
+        padding: 12px;
+        border-radius: var(--radius);
+        display: flex;
+        gap: 16px;
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+      }
+      .hermes-advise-summary strong {
+        color: var(--text);
+      }
+    </style>
   </head>
   <body>
     <header class="top-tabbar">
@@ -15,204 +258,381 @@
         <a href="/localization_rubric_lab.html" class="top-tab">Localization</a>
         <a href="/smfp.html" class="top-tab">SMFP</a>
         <a href="/smfp_governance.html" class="top-tab">Governance</a>
+        <a href="/hermes.html" class="top-tab active">Hermes Lab</a>
       </nav>
     </header>
 
     <div class="app-shell">
+      <!-- SIDEBAR DINÂMICA -->
       <aside class="sidebar">
-        <div class="sidebar-head">
-          <p class="eyebrow">Archived Prototype</p>
-          <h1>Hermes v0</h1>
-          <p class="subtle">
-            Superseded by ADR-0001. Mantido para investigacao forense do identity gap.
-          </p>
+        <!-- SEÇÃO 1: SIDEPANEL DIDÁTICO -->
+        <div id="sidebar-didactic" class="sidebar-content">
+          <div class="sidebar-head">
+            <p class="eyebrow">MLOps & Agentic</p>
+            <h1>Hermes Lab</h1>
+            <p class="subtle">
+              Ambiente didático para compreender a orquestração e diagnósticos do agente Hermes.
+            </p>
+          </div>
+          <div class="status-strip">
+            <div id="health-badge" class="badge">Verificando Engine...</div>
+          </div>
+          <section class="ollama-panel" style="margin-top: 16px;">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">Ollama Status</p>
+                <h2 id="didactic-ollama-title">Verificando...</h2>
+              </div>
+            </div>
+            <div id="didactic-ollama-endpoint" class="subtle">URL: n/d</div>
+            <div id="didactic-ollama-models" class="subtle">Modelos: n/d</div>
+          </section>
         </div>
 
-        <section class="lab-card">
-          <div class="panel-header tight">
-            <div>
-              <p class="eyebrow">Run</p>
-              <h2>Configuração</h2>
-            </div>
+        <!-- SEÇÃO 2: FORMULÁRIO DO ADVISOR -->
+        <div id="sidebar-advisor" class="sidebar-content" style="display: none;">
+          <div class="sidebar-head">
+            <p class="eyebrow">Hermes Advisor</p>
+            <h1>Diagnóstico</h1>
+            <p class="subtle">
+              Envie um contexto para acionar as regras de negócio do Hermes e gerar diagnósticos rápidos.
+            </p>
           </div>
-
-          <form id="hermes-form" class="form-stack" novalidate>
-            <label>
-              <span>Rubric case</span>
-              <select id="rubric-case" required>
-                <option value="">Carregando casos...</option>
-              </select>
-            </label>
-
-            <div class="field-grid">
-              <label>
-                <span>Locale</span>
-                <input id="locale" type="text" value="pt-BR" />
-              </label>
-              <label>
-                <span>Categoria</span>
-                <input id="category" type="text" placeholder="Writing" />
-              </label>
+          <section class="lab-card">
+            <div class="panel-header tight">
+              <div>
+                <p class="eyebrow">Entrada de Contexto</p>
+                <h2>Experimento</h2>
+              </div>
             </div>
-
-            <label>
-              <span>Persona</span>
-              <input id="persona-name" type="text" value="Cliente impaciente" required />
-            </label>
-
-            <label>
-              <span>Contexto</span>
-              <input id="persona-context" type="text" value="Suporte de produto digital" required />
-            </label>
-
-            <label>
-              <span>Perfil</span>
-              <textarea id="persona-profile" rows="4" required>Usuário frustrado, com pouco tempo, que fornece informação incompleta e espera uma solução prática.</textarea>
-            </label>
-
-            <label>
-              <span>Modelo de stress/user</span>
-              <input id="stress-model" type="text" list="model-options" placeholder="Carregando modelos..." />
-            </label>
-
-            <label>
-              <span>Modelo assistant</span>
-              <input id="assistant-model" type="text" list="model-options" placeholder="Carregando modelos..." />
-            </label>
-
-            <div class="field-grid compact">
+            <form id="hermes-advisor-form" class="form-stack" novalidate>
               <label>
-                <span>Temp baixa</span>
-                <input id="temperature-low" type="number" min="0" max="2" step="0.1" value="0.2" />
+                <span>Objective (Objetivo)</span>
+                <input id="advise-objective" type="text" placeholder="ex.: generate_dpo_pairs" required />
               </label>
               <label>
-                <span>Temp alta</span>
-                <input id="temperature-high" type="number" min="0" max="2" step="0.1" value="0.8" />
+                <span>Context JSON</span>
+                <textarea id="advise-context" rows="12" spellcheck="false" placeholder="Cole aqui o JSON de contexto..."></textarea>
               </label>
-              <label>
-                <span>Conversas</span>
-                <input id="num-conversations" type="number" min="1" max="100" step="1" value="1" />
-              </label>
-              <label>
-                <span>Turnos</span>
-                <input id="num-turns" type="number" min="1" max="10" step="1" value="1" />
-              </label>
-              <label>
-                <span>Janela</span>
-                <input id="max-history-turns" type="number" min="0" max="10" step="1" value="1" />
-              </label>
-              <label>
-                <span>Scoring model</span>
-                <input id="scoring-model" type="text" list="model-options" placeholder="Carregando modelos..." />
-              </label>
-            </div>
+              <div class="actions">
+                <button id="ask-hermes" type="submit">Pedir Diagnóstico</button>
+              </div>
+            </form>
+          </section>
+        </div>
 
-            <datalist id="model-options"></datalist>
-
-            <div class="actions">
-              <button id="start-run" type="submit">Iniciar run</button>
-              <button id="cancel-run" class="ghost danger" type="button" disabled>Cancelar</button>
-              <button id="refresh-runs" class="ghost" type="button">Atualizar</button>
-            </div>
-          </form>
-        </section>
+        <!-- SEÇÃO 3: FORMULÁRIO DO ORQUESTRADOR (v0) -->
+        <div id="sidebar-orchestrator" class="sidebar-content" style="display: none;">
+          <div class="sidebar-head">
+            <p class="eyebrow">Archived Prototype</p>
+            <h1>Hermes v0</h1>
+            <p class="subtle">
+              Orquestrador experimental de runs ativas contra o backend.
+            </p>
+          </div>
+          <section class="lab-card">
+            <form id="hermes-form" class="form-stack" novalidate>
+              <label>
+                <span>Rubric case</span>
+                <select id="rubric-case" required>
+                  <option value="">Carregando casos...</option>
+                </select>
+              </label>
+              <div class="field-grid">
+                <label>
+                  <span>Locale</span>
+                  <input id="locale" type="text" value="pt-BR" />
+                </label>
+                <label>
+                  <span>Categoria</span>
+                  <input id="category" type="text" placeholder="Writing" />
+                </label>
+              </div>
+              <label>
+                <span>Persona</span>
+                <input id="persona-name" type="text" value="Cliente impaciente" required />
+              </label>
+              <label>
+                <span>Contexto</span>
+                <input id="persona-context" type="text" value="Suporte de produto digital" required />
+              </label>
+              <label>
+                <span>Perfil</span>
+                <textarea id="persona-profile" rows="3" required>Usuário frustrado, com pouco tempo, que fornece informação incompleta.</textarea>
+              </label>
+              <div class="field-grid">
+                <label>
+                  <span>Modelo Stress</span>
+                  <input id="stress-model" type="text" list="model-options" placeholder="Buscando..." />
+                </label>
+                <label>
+                  <span>Modelo Assistant</span>
+                  <input id="assistant-model" type="text" list="model-options" placeholder="Buscando..." />
+                </label>
+              </div>
+              <div class="field-grid compact">
+                <label><span>Temp B</span><input id="temperature-low" type="number" step="0.1" value="0.2" /></label>
+                <label><span>Temp A</span><input id="temperature-high" type="number" step="0.1" value="0.8" /></label>
+                <label><span>Runs</span><input id="num-conversations" type="number" value="1" /></label>
+                <label><span>Turnos</span><input id="num-turns" type="number" value="1" /></label>
+                <label><span>Janela</span><input id="max-history-turns" type="number" value="1" /></label>
+                <label><span>Scoring</span><input id="scoring-model" type="text" list="model-options" placeholder="Buscando..." /></label>
+              </div>
+              <datalist id="model-options"></datalist>
+              <div class="actions">
+                <button id="start-run" type="submit">Iniciar run</button>
+                <button id="cancel-run" class="ghost danger" type="button" disabled>Cancelar</button>
+              </div>
+            </form>
+          </section>
+        </div>
       </aside>
 
+      <!-- WORKSPACE PRINCIPAL -->
       <main class="workspace hermes-workspace">
-        <section class="conversation-panel">
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">Status</p>
-              <h2 id="run-title">Nenhuma run ativa</h2>
+        <div style="grid-column: 1 / -1; width: 100%;">
+          <!-- BARRA DE SUB-ABAS -->
+          <nav class="sub-tabs" aria-label="Hermes sub-navigation">
+            <button id="btn-tab-study" class="sub-tab-btn active" type="button">🧑‍🏫 1. Guia de MLOps</button>
+            <button id="btn-tab-advisor" class="sub-tab-btn" type="button">🧪 2. Hermes Advisor</button>
+            <button id="btn-tab-orchestrator" class="sub-tab-btn" type="button">⚙️ 3. Orquestrador Runs (v0)</button>
+          </nav>
+
+          <!-- CONTEÚDO SUB-ABA 1: GUIA DE MLOPS -->
+          <div id="tab-content-study" class="tab-pane">
+            <div class="conversation-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Didactics & Concept</p>
+                  <h2>O Ciclo MLOps do Agente Hermes</h2>
+                </div>
+              </div>
+
+              <div class="didactic-section" style="margin-top: 16px;">
+                <p>
+                  Bem-vindo ao <strong>Hermes Lab</strong>! Este ambiente foi projetado para ensinar de forma interativa e guiada como a orquestração e a governança de IA acontecem antes de colocarmos agentes autônomos em produção.
+                </p>
+                <p>
+                  Diferente de arquiteturas ingênuas, no MLOps de produção as ações do agente dependem de <strong>evidências calibradas</strong>, <strong>contratos explícitos</strong> e <strong>auditoria determinística</strong>.
+                </p>
+              </div>
+
+              <div class="didactic-section">
+                <h3>O Fluxo de Trabalho do Lab</h3>
+                <div class="guided-flow-grid">
+                  <div class="flow-step-card">
+                    <strong>1. Evaluation</strong>
+                    <span>Testes SxS ou RAG geram dados empíricos de qualidade.</span>
+                  </div>
+                  <div class="flow-step-card">
+                    <strong>2. Run</strong>
+                    <span>A execução do teste cria um log de logs estruturado (Contexto JSON).</span>
+                  </div>
+                  <div class="flow-step-card">
+                    <strong>3. Hermes Lê</strong>
+                    <span>O Hermes Agent ingere o JSON seguindo contratos formais sem efeitos colaterais.</span>
+                  </div>
+                  <div class="flow-step-card">
+                    <strong>4. Diagnóstico</strong>
+                    <span>O Hermes gera recomendações e pontuações de confiança explicáveis.</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="didactic-highlight">
+                <h3 style="margin-top:0; color: var(--accent-strong);">Da Confiança (Second Brain) à Ação (Atlas OS)</h3>
+                <p style="margin-bottom:0;">
+                  A filosofia do laboratório divide o ciclo em duas pontas fundamentais:
+                  <br />
+                  • <strong>Second Brain:</strong> É onde você está agora. O objetivo é testar, avaliar, rodar inferências paralelas e calibrar rubricas. O Second Brain <strong>constrói e treina a confiança</strong>.
+                  <br />
+                  • <strong>Atlas OS:</strong> É a futura camada operacional. Ele consome as rubricas e os pesos validados aqui para executar ações no mundo real de forma robusta e com governança estrita. O Atlas OS <strong>gasta a confiança</strong>.
+                  <br />
+                  • <strong>Hermes:</strong> É o agente regulador. Ele observa os dados de rodada (Observe) e aconselha o cientista de dados (Advise), prevenindo alucinações e desvios de contratos.
+                </p>
+              </div>
+
+              <div class="didactic-section">
+                <h3>Instruções de Estudo:</h3>
+                <ol class="didactic-list">
+                  <li>Navegue até a aba <strong>2. Hermes Advisor</strong> para experimentar diagnósticos reais usando templates estruturados.</li>
+                  <li>Altere os valores de DPO ou RAG e observe como as regras de negócio do Hermes reagem instantaneamente.</li>
+                  <li>Consulte o status do seu servidor local do <strong>Ollama</strong> no painel lateral para garantir que seus modelos locais estejam ativos.</li>
+                </ol>
+              </div>
             </div>
-            <span id="run-status" class="badge neutral">idle</span>
           </div>
 
-          <div id="run-summary" class="state-summary neutral">
-            Selecione um rubric case e inicie uma run para acompanhar o progresso.
+          <!-- CONTEÚDO SUB-ABA 2: HERMES ADVISOR (PLAYGROUND) -->
+          <div id="tab-content-advisor" class="tab-pane" style="display: none;">
+            <div class="conversation-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Interactive Diagnostic Lab</p>
+                  <h2>Laboratório de Análise e Auditoria do Hermes</h2>
+                </div>
+                <span id="advisor-status-badge" class="badge ok">ready</span>
+              </div>
+
+              <div class="template-selector-block" style="margin-top: 16px;">
+                <p class="eyebrow" style="margin:0;">Carregar Template de Run:</p>
+                <select id="template-json-select">
+                  <option value="sxs_preference">SxS Preference Evaluation (chosen/rejected)</option>
+                  <option value="rubric_calibration">Rubric Case Calibration (draft/reviewed)</option>
+                  <option value="rag_retrieval">RAG Vector Retrieval (pgvector traces)</option>
+                </select>
+                <button id="btn-load-template" class="ghost" type="button" style="padding: 10px 18px;">Aplicar Template</button>
+              </div>
+
+              <div class="detail-grid" style="margin-top:0; grid-template-columns: 1.2fr 1fr;">
+                <!-- Resultados Diagnóstico -->
+                <section class="detail-block" style="padding:0;">
+                  <div class="panel-header tight">
+                    <div>
+                      <p class="eyebrow">Diagnóstico & Sugestões</p>
+                      <h3>Hermes Recommendations</h3>
+                    </div>
+                  </div>
+                  <div id="advisor-results-area" class="hermes-advise-results">
+                    <div class="empty-state">Carregue um template JSON e clique em "Pedir Diagnóstico" na barra lateral para ver a análise do Hermes.</div>
+                  </div>
+                </section>
+
+                <!-- Documentação dos Campos JSON -->
+                <section class="detail-block" style="padding:0;">
+                  <div class="panel-header tight">
+                    <div>
+                      <p class="eyebrow">Estrutura do Contrato</p>
+                      <h3>Guia de Formatação JSON</h3>
+                    </div>
+                  </div>
+                  <p class="subtle" style="font-size:0.85rem; margin-bottom: 12px;">
+                    O Hermes lê o contexto fornecido pelo run e valida os dados de acordo com regras determinísticas.
+                  </p>
+                  <div class="explain-keys-grid">
+                    <div class="explain-key-item">
+                      <code>current_models</code>
+                      <span>Define os modelos usados na geração e como juiz (judge). O Hermes alerta se o mesmo modelo atuar em ambas as pontas (viés de auto-avaliação).</span>
+                    </div>
+                    <div class="explain-key-item">
+                      <code>rubric</code>
+                      <span>Informa a quantidade de regras e dimensões associadas. Poucas regras ativam alertas de baixa fidelidade do teste.</span>
+                    </div>
+                    <div class="explain-key-item">
+                      <code>result</code>
+                      <span>Contém a margem de diferença obtida entre a resposta escolhida e a rejeitada no SxS.</span>
+                    </div>
+                    <div class="explain-key-item">
+                      <code>current_thresholds</code>
+                      <span>Os limites estatísticos do experimento. Se a margem estiver abaixo do threshold, o Hermes sinaliza inconsistência.</span>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
           </div>
 
-          <div class="hermes-metrics">
-            <div><span>Resultados</span><strong id="metric-results">0</strong></div>
-            <div><span>Persona</span><strong id="metric-persona">n/d</strong></div>
-            <div><span>Conversa</span><strong id="metric-conversation">n/d</strong></div>
-            <div><span>Turno</span><strong id="metric-turn">n/d</strong></div>
-          </div>
+          <!-- CONTEÚDO SUB-ABA 3: ORQUESTRADOR DE RUNS (v0) -->
+          <div id="tab-content-orchestrator" class="tab-pane" style="display: none;">
+            <div class="conversation-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Status</p>
+                  <h2 id="run-title">Nenhuma run ativa</h2>
+                </div>
+                <span id="run-status" class="badge neutral">idle</span>
+              </div>
 
-          <div class="hermes-live-panel" aria-live="polite">
-            <div>
-              <span>Backend</span>
-              <strong id="live-backend">verificando</strong>
-            </div>
-            <div>
-              <span>Ollama/modelos</span>
-              <strong id="live-models">verificando</strong>
-            </div>
-            <div>
-              <span>Etapa atual</span>
-              <strong id="live-stage">idle</strong>
-            </div>
-            <div>
-              <span>Modelo em chamada</span>
-              <strong id="live-model">n/d</strong>
-            </div>
-            <div>
-              <span>Ultimo polling</span>
-              <strong id="live-poll">n/d</strong>
-            </div>
-          </div>
+              <div id="run-summary" class="state-summary neutral" style="margin-top: 16px;">
+                Selecione um rubric case na barra lateral esquerda e inicie uma run para simular a esteira ativa do Hermes.
+              </div>
 
-          <div class="panel-header tight">
-            <div>
-              <p class="eyebrow">Contexto vivo</p>
-              <h2>Janela do Hermes</h2>
+              <div class="hermes-metrics" style="margin-top: 16px;">
+                <div><span>Resultados</span><strong id="metric-results">0</strong></div>
+                <div><span>Persona</span><strong id="metric-persona">n/d</strong></div>
+                <div><span>Conversa</span><strong id="metric-conversation">n/d</strong></div>
+                <div><span>Turno</span><strong id="metric-turn">n/d</strong></div>
+              </div>
+
+              <div class="hermes-live-panel" aria-live="polite" style="margin: 20px 0;">
+                <div>
+                  <span>Backend</span>
+                  <strong id="live-backend">verificando</strong>
+                </div>
+                <div>
+                  <span>Ollama/modelos</span>
+                  <strong id="live-models">verificando</strong>
+                </div>
+                <div>
+                  <span>Etapa atual</span>
+                  <strong id="live-stage">idle</strong>
+                </div>
+                <div>
+                  <span>Modelo em chamada</span>
+                  <strong id="live-model">n/d</strong>
+                </div>
+                <div>
+                  <span>Ultimo polling</span>
+                  <strong id="live-poll">n/d</strong>
+                </div>
+              </div>
+
+              <div class="panel-header tight">
+                <div>
+                  <p class="eyebrow">Janela do Hermes</p>
+                  <h2>Contexto Vivo do Agente</h2>
+                </div>
+              </div>
+              <div class="hermes-context-window" aria-live="polite">
+                <div class="hermes-context-grid">
+                  <section>
+                    <span>Persona</span>
+                    <pre id="context-persona">n/d</pre>
+                  </section>
+                  <section>
+                    <span>Prompt atual</span>
+                    <pre id="context-prompt">n/d</pre>
+                  </section>
+                  <section>
+                    <span>Historico usado</span>
+                    <pre id="context-history">n/d</pre>
+                  </section>
+                  <section>
+                    <span>Candidatas recentes</span>
+                    <pre id="context-candidates">n/d</pre>
+                  </section>
+                </div>
+                <section class="hermes-event-log" style="margin-top: 16px;">
+                  <span>Eventos</span>
+                  <ol id="context-events">
+                    <li>Aguardando eventos da run.</li>
+                  </ol>
+                </section>
+              </div>
+
+              <div class="panel-header tight" style="margin-top: 24px;">
+                <div>
+                  <p class="eyebrow">Dataset preview</p>
+                  <h2>Pares chosen/rejected gerados</h2>
+                </div>
+              </div>
+              <div id="results-list" class="hermes-results">
+                <div class="empty-state">Nenhum resultado ainda.</div>
+              </div>
             </div>
-          </div>
-          <div class="hermes-context-window" aria-live="polite">
-            <div class="hermes-context-grid">
-              <section>
-                <span>Persona</span>
-                <pre id="context-persona">n/d</pre>
-              </section>
-              <section>
-                <span>Prompt atual</span>
-                <pre id="context-prompt">n/d</pre>
-              </section>
-              <section>
-                <span>Historico usado</span>
-                <pre id="context-history">n/d</pre>
-              </section>
-              <section>
-                <span>Candidatas recentes</span>
-                <pre id="context-candidates">n/d</pre>
-              </section>
-            </div>
-            <section class="hermes-event-log">
-              <span>Eventos</span>
-              <ol id="context-events"></ol>
+
+            <!-- Runs Recentes -->
+            <section class="history-panel" style="margin-top: 24px;">
+              <div class="panel-header tight">
+                <div>
+                  <p class="eyebrow">Histórico de Execuções</p>
+                  <h2>Runs recentes no Laboratório</h2>
+                </div>
+              </div>
+              <div id="runs-list" class="history-list"></div>
             </section>
           </div>
-
-          <div class="panel-header tight">
-            <div>
-              <p class="eyebrow">Dataset preview</p>
-              <h2>Pares chosen/rejected</h2>
-            </div>
-          </div>
-          <div id="results-list" class="hermes-results">
-            <div class="empty-state">Nenhum resultado ainda.</div>
-          </div>
-        </section>
-
-        <section class="sidepanel">
-          <div class="panel-header tight">
-            <div>
-              <p class="eyebrow">Histórico</p>
-              <h2>Runs recentes</h2>
-            </div>
-          </div>
-          <div id="runs-list" class="history-list"></div>
-        </section>
+        </div>
       </main>
     </div>
 
