@@ -2,7 +2,7 @@
 
 Bem-vindo ao **Hermes Lab**! Este guia foi projetado para levar você do zero ao entendimento profundo da avaliação de agentes locais, geração de datasets para DPO/RLHF e diagnóstico estruturado de MLOps.
 
-Agora que você tem o **`hermes:latest`** (seu auditor local leve) e o **`openhermes:latest`** (o gigante de 7B da comunidade) instalados no seu Ollama, você está equipado com o arsenal perfeito.
+Agora que você tem o **`hermes:latest`** (seu auditor local leve), o **`openhermes:latest`** (o gigante da comunidade) e o **`llama3.2:3b`** (seu avaliador analítico local) instalados no seu Ollama, você está equipado com o arsenal perfeito.
 
 ---
 
@@ -61,9 +61,10 @@ Aqui você sai da teoria determinística e coloca as IAs locais para conversar a
 * **Rubric Case:** Escolha a rubrica que definirá os critérios de qualidade (como *"Logic and Formatting"* ou *"Natural Language Fluency"*).
 * **Parâmetros da Persona:** É o "agente estressor" simulado. Por exemplo, `"Cliente Impaciente"`, com o perfil de um usuário frustrado e sem tempo.
 * **Modelos Ativos:**
-  * **Stress Model:** Escolha o **`hermes:latest`** ou **`openhermes`** para gerar as provocações do usuário.
-  * **Assistant Model:** Escolha o **`llama3.2:3b`** ou **`phi3:mini`** para atuar como o atendente do suporte.
-  * **Scoring Model (O Juiz):** Escolha o **`openhermes`** ou **`hermes:latest`** para analisar as duas alternativas sob o crivo das rubricas.
+  * **Stress Model:** Escolha o **`openhermes:latest`** (ou derivado) para atuar como simulador estressor de provocações e diálogos adversariais do usuário.
+  * **Assistant Model:** Escolha o modelo que atuará como atendente ou assistente do suporte técnico (ex: **`llama3.2:3b`** ou **`phi3:mini`**).
+  * **Scoring Model (Avaliador Heurístico):** Escolha o **`llama3.2:3b`** para computar pontuações analíticas e correspondência às dimensões da rubrica com alta eficiência.
+  * **Judge / Alinhador (Contrato e Alçada):** Representado no backend pelo **`hermes:latest`**, que executa a tomada de decisão cega SxS (Blind evaluation) e assina os diagnósticos de conformidade.
 * **Runs / Turnos:** Defina o tamanho da simulação (sugerimos `1 Run` com `2 Turnos` para testes locais rápidos).
 
 ---

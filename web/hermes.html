@@ -247,6 +247,186 @@
       .hermes-advise-summary strong {
         color: var(--text);
       }
+      
+      /* Premium Picture-in-Picture Floating Panel */
+      .hermes-pip-floating {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        width: 360px;
+        background: rgba(15, 23, 42, 0.88);
+        backdrop-filter: blur(16px) saturate(180%);
+        -webkit-backdrop-filter: blur(16px) saturate(180%);
+        border: 1px solid rgba(0, 220, 130, 0.25);
+        box-shadow: 0 8px 32px 0 rgba(0, 220, 130, 0.15), 0 4px 12px 0 rgba(0, 0, 0, 0.3);
+        border-radius: var(--radius);
+        z-index: 9999;
+        overflow: hidden;
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        font-family: monospace;
+      }
+      .hermes-pip-floating.minimized {
+        width: 240px;
+        height: 48px;
+        background: rgba(15, 23, 42, 0.95);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        border-color: rgba(0, 220, 130, 0.15);
+      }
+      .hermes-pip-floating.minimized .pip-content {
+        display: none;
+      }
+      .pip-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        background: rgba(15, 23, 42, 0.4);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        cursor: grab;
+        user-select: none;
+      }
+      .pip-title-block {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .pip-pulse {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #94a3b8;
+        display: inline-block;
+      }
+      .pip-pulse.active {
+        background: #00dc82;
+        box-shadow: 0 0 10px #00dc82, 0 0 20px #00dc82;
+        animation: pulse-glow 1.5s infinite alternate;
+      }
+      .pip-pulse.error {
+        background: #ff5e3a;
+        box-shadow: 0 0 10px #ff5e3a;
+      }
+      @keyframes pulse-glow {
+        from { opacity: 0.6; }
+        to { opacity: 1; }
+      }
+      .pip-title-block h3 {
+        margin: 0;
+        font-size: 0.82rem;
+        color: #f8fafc;
+        text-transform: uppercase;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+      }
+      .pip-actions button {
+        background: transparent;
+        border: none;
+        color: #94a3b8;
+        font-size: 1rem;
+        cursor: pointer;
+        padding: 4px;
+        transition: color 0.2s;
+      }
+      .pip-actions button:hover {
+        color: #f8fafc;
+      }
+      .pip-content {
+        padding: 16px;
+      }
+      .pip-section {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding-bottom: 12px;
+        margin-bottom: 12px;
+      }
+      .pip-label {
+        font-size: 0.65rem;
+        color: rgba(255, 255, 255, 0.4);
+        text-transform: uppercase;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        display: block;
+        margin-bottom: 6px;
+      }
+      .pip-value {
+        font-size: 0.8rem;
+        color: #00dc82;
+        font-weight: 700;
+      }
+      .pip-terminal-log {
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 0.72rem;
+        color: #e2e8f0;
+        height: 140px;
+        overflow-y: auto;
+        line-height: 1.4;
+        white-space: pre-wrap;
+      }
+      .pip-meta-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .pip-meta-grid span {
+        font-size: 0.6rem;
+        color: rgba(255, 255, 255, 0.4);
+        display: block;
+        margin-bottom: 2px;
+      }
+      .pip-meta-grid strong {
+        font-size: 0.8rem;
+        color: #f8fafc;
+      }
+      .pip-trace-steps {
+        list-style: none;
+        padding: 0;
+        margin: 8px 0;
+        font-size: 0.72rem;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .trace-step {
+        color: rgba(255, 255, 255, 0.35);
+        padding-left: 18px;
+        position: relative;
+        transition: all 0.2s ease;
+      }
+      .trace-step::before {
+        content: "○";
+        position: absolute;
+        left: 0;
+        color: rgba(255, 255, 255, 0.2);
+        font-weight: normal;
+      }
+      .trace-step.active {
+        color: #00dc82;
+        font-weight: 700;
+        text-shadow: 0 0 4px rgba(0, 220, 130, 0.4);
+      }
+      .trace-step.active::before {
+        content: "●";
+        color: #00dc82;
+        text-shadow: 0 0 8px #00dc82;
+      }
+      .trace-step.completed {
+        color: #069494;
+      }
+      .trace-step.completed::before {
+        content: "✓";
+        color: #069494;
+        font-weight: bold;
+      }
+      .trace-step.failed {
+        color: #ff5e3a;
+      }
+      .trace-step.failed::before {
+        content: "✗";
+        color: #ff5e3a;
+        font-weight: bold;
+      }
     </style>
   </head>
   <body>
@@ -271,7 +451,7 @@
             <p class="eyebrow">MLOps & Agentic</p>
             <h1>Hermes Lab</h1>
             <p class="subtle">
-              Ambiente didático para compreender a orquestração e diagnósticos do agente Hermes.
+              Cockpit de Inteligência Local, Diagnóstico e Robótica
             </p>
           </div>
           <div class="status-strip">
@@ -363,11 +543,15 @@
               <div class="field-grid">
                 <label>
                   <span>Modelo Stress</span>
-                  <input id="stress-model" type="text" list="model-options" placeholder="Buscando..." />
+                  <select id="stress-model" required>
+                    <option value="">Buscando...</option>
+                  </select>
                 </label>
                 <label>
                   <span>Modelo Assistant</span>
-                  <input id="assistant-model" type="text" list="model-options" placeholder="Buscando..." />
+                  <select id="assistant-model" required>
+                    <option value="">Buscando...</option>
+                  </select>
                 </label>
               </div>
               <div class="field-grid compact">
@@ -376,9 +560,12 @@
                 <label><span>Runs</span><input id="num-conversations" type="number" value="1" /></label>
                 <label><span>Turnos</span><input id="num-turns" type="number" value="1" /></label>
                 <label><span>Janela</span><input id="max-history-turns" type="number" value="1" /></label>
-                <label><span>Scoring</span><input id="scoring-model" type="text" list="model-options" placeholder="Buscando..." /></label>
+                <label><span>Scoring</span>
+                  <select id="scoring-model" required>
+                    <option value="">Buscando...</option>
+                  </select>
+                </label>
               </div>
-              <datalist id="model-options"></datalist>
               <div class="actions">
                 <button id="start-run" type="submit">Iniciar run</button>
                 <button id="cancel-run" class="ghost danger" type="button" disabled>Cancelar</button>
@@ -634,6 +821,53 @@
           </div>
         </div>
       </main>
+    </div>
+
+    <!-- PIP TELEMETRY PANEL -->
+    <div id="hermes-pip-panel" class="hermes-pip-floating">
+      <div class="pip-header" id="pip-header">
+        <div class="pip-title-block">
+          <span id="pip-pulse" class="pip-pulse"></span>
+          <h3>Hermes CoT Telemetry</h3>
+        </div>
+        <div class="pip-actions">
+          <button id="btn-pip-toggle" type="button" title="Minimizar/Maximizar">—</button>
+        </div>
+      </div>
+      <div id="pip-body" class="pip-content">
+        <div class="pip-section">
+          <span class="pip-label">ESTADO DA COGNIÇÃO</span>
+          <div id="pip-cognition-state" class="pip-value">Aguardando estímulos...</div>
+        </div>
+        <div class="pip-section">
+          <span class="pip-label">HERMES EXECUTION TRACE</span>
+          <ul id="pip-trace-steps" class="pip-trace-steps">
+            <li id="step-ingestion" class="trace-step">1. Ingestão do Contrato</li>
+            <li id="step-validation" class="trace-step">2. Validação Estrutural</li>
+            <li id="step-conflict" class="trace-step">3. Observação de Conflitos</li>
+            <li id="step-heuristic" class="trace-step">4. Avaliação Heurística</li>
+            <li id="step-diagnostic" class="trace-step">5. Diagnóstico do Advisor</li>
+            <li id="step-recommendation" class="trace-step">6. Recomendação Final</li>
+          </ul>
+        </div>
+        <div class="pip-section">
+          <span class="pip-label">PROCESSO DE AUDITORIA (LOGS REAIS)</span>
+          <div id="pip-audit-trace" class="pip-terminal-log">[Sistema Ativo] Cockpit pronto.</div>
+        </div>
+        <div class="pip-section" style="border: none; padding-bottom: 0;">
+          <span class="pip-label">METADADOS DE TELEMETRIA</span>
+          <div class="pip-meta-grid">
+            <div>
+              <span>Modo / Ação</span>
+              <strong id="pip-meta-latency">Observe / Idle</strong>
+            </div>
+            <div>
+              <span>Regras Ativadas</span>
+              <strong id="pip-meta-rules">0 / 8</strong>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script defer src="/session_orchestrator.js"></script>

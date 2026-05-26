@@ -109,5 +109,7 @@ class RlhfRunConfig(BaseModel):
     turns_per_conversation: int = Field(default=3, ge=1, le=10)
     conversations_count: int = Field(default=10, ge=1, le=100)
     rubric_set_id: str
+    # TECH DEBT / PLACEHOLDER: Este default poderá ser parametrizado dinamicamente no futuro
+    # para respeitar a variável global DEFAULT_JUDGE_MODEL ou DEFAULT_SCORING_MODEL do backend.
     scoring_model: str = Field(default="llama3.2:3b")
     scoring_provider: str = Field(default="ollama")

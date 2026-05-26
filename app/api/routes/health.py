@@ -20,7 +20,7 @@ def health_check() -> dict[str, object]:
     ollama_ok = bool(ollama.get("ok", False))
 
     return {
-        "ok": db_ok and ollama_ok,
+        "ok": db_ok and ollama_ok and ollama_ready,
         "ready": ollama_ready,
         "database": "reachable" if db_ok else "unreachable",
         "database_error": db_error,

@@ -65,6 +65,14 @@ const elements = {
   contextCandidates: document.querySelector("#context-candidates"),
   contextEvents: document.querySelector("#context-events"),
   healthBadge: document.querySelector("#health-badge"),
+  pipPanel: document.querySelector("#hermes-pip-panel"),
+  pipHeader: document.querySelector("#pip-header"),
+  btnPipToggle: document.querySelector("#btn-pip-toggle"),
+  pipPulse: document.querySelector("#pip-pulse"),
+  pipCognition: document.querySelector("#pip-cognition-state"),
+  pipAuditTrace: document.querySelector("#pip-audit-trace"),
+  pipMetaLatency: document.querySelector("#pip-meta-latency"),
+  pipMetaRules: document.querySelector("#pip-meta-rules"),
 };
 
 const state = {
@@ -72,6 +80,7 @@ const state = {
   pollTimer: null,
   models: [],
   contextSource: "manual",
+  defaults: null,
 };
 
 // Templates JSON estruturados para estudo didático
@@ -224,6 +233,17 @@ async function handleAdvisorSubmit(event) {
   setAdvisorStatus("warning", "advising");
   elements.askHermes.disabled = true;
   elements.advisorResultsArea.innerHTML = '<div class="empty-state">Hermes analisando contrato do run...</div>';
+  
+  // Real telemetry start
+  logToPip(
+    "Auditoria: Analisando...",
+    `Solicitação de Diagnóstico iniciada pelo Cientista de Dados.\nInterpretando objetivo: "${elements.adviseObjective.value.trim()}"\nVerificando conformidade contratual do JSON de entrada...`,
+    "Advise / Running",
+    true,
+    0,
+    8
+  );
+  
   try {
     const payload = {
       objective: elements.adviseObjective.value.trim() || "manual_diagnostic",
@@ -237,9 +257,46 @@ async function handleAdvisorSubmit(event) {
     });
     renderAdvisorResponse(response);
     setAdvisorStatus("ok", "ready");
+    
+    // Real telemetry success
+    const rulesEval = response.advisor_trace?.rules_evaluated || [];
+    const rulesTrig = response.advisor_trace?.rules_triggered || [];
+    const diagnoses = response.diagnosis || [];
+    
+    let logMsg = `Diagnóstico Concluído com Sucesso.\n`;
+    logMsg += `Regras avaliadas pelo Hermes: ${rulesEval.join(", ") || "n/d"}\n`;
+    logMsg += `Heurísticas disparadas: ${rulesTrig.length > 0 ? rulesTrig.join(", ") : "Nenhuma (Conformidade contratual 100%)"}\n`;
+    if (diagnoses.length > 0) {
+      logMsg += `\n⚠️ AVISOS E INCONSISTÊNCIAS DETECTADOS:\n`;
+      diagnoses.forEach((d, i) => {
+        logMsg += `${i + 1}. [${d.severity.toUpperCase()}] ${d.issue}: ${d.impact} (Evidência: ${d.evidence})\n`;
+      });
+    }
+    
+    logToPip(
+      "Auditoria: Concluída",
+      logMsg,
+      "Observe & Advise",
+      false,
+      rulesTrig.length,
+      rulesEval.length || 8
+    );
   } catch (error) {
     setAdvisorStatus("offline", "failed");
     elements.advisorResultsArea.innerHTML = `<div class="state-summary offline">${escapeHtml(error.message)}</div>`;
+    
+    // Real telemetry error
+    logToPip(
+      "Cognição: Falhou",
+      `Erro na Auditoria do Contrato:\n${error.message}`,
+      "Advise / Error",
+      false,
+      0,
+      8
+    );
+    if (elements.pipPulse) {
+      elements.pipPulse.className = "pip-pulse error";
+    }
   } finally {
     elements.askHermes.disabled = false;
   }
@@ -400,6 +457,18 @@ function buildPayload() {
 
 async function loadRuntimeStatus() {
   try {
+    const config = await fetchJson("/api/hermes/config");
+    state.defaults = config;
+  } catch (error) {
+    console.error("Falha ao carregar defaults do backend:", error);
+    state.defaults = {
+      default_advisor_model: "hermes:latest",
+      default_stress_model: "openhermes:latest",
+      default_scoring_model: "llama3.2:3b"
+    };
+  }
+
+  try {
     const health = await fetchJson("/api/health");
     const ollama = health.ollama || {};
     
@@ -414,7 +483,7 @@ async function loadRuntimeStatus() {
 
     // Atualiza widgets didáticos
     elements.didacticOllamaTitle.textContent = ollama.ready ? "Ollama Conectado" : "Ollama Indisponível";
-    elements.didacticOllamaEndpoint.textContent = `Endpoint: ${ollama.endpoint || "n/d"}`;
+    elements.didacticOllamaEndpoint.textContent = `Endpoint: ${ollama.endpoint || ollama.url || "n/d"}`;
   } catch (error) {
     elements.healthBadge.textContent = "Engine offline";
     elements.healthBadge.className = "badge offline";
@@ -430,10 +499,6 @@ async function loadRuntimeStatus() {
     state.models = models.map((item) => item.name).filter(Boolean);
     renderModelOptions(state.models);
     if (state.models.length) {
-      const preferred = state.models.find((name) => name.includes("llama3.2")) || state.models[0];
-      for (const input of [elements.stressModel, elements.assistantModel, elements.scoringModel]) {
-        if (input && !textValue(input)) input.value = preferred;
-      }
       elements.liveModels.textContent = `${state.models.length} modelo(s) carregados`;
       elements.didacticOllamaModels.textContent = `Modelos: ${state.models.join(", ")}`;
     } else {
@@ -447,11 +512,35 @@ async function loadRuntimeStatus() {
 }
 
 function renderModelOptions(models) {
-  elements.modelOptions.innerHTML = "";
-  for (const model of models) {
-    const option = document.createElement("option");
-    option.value = model;
-    elements.modelOptions.append(option);
+  const dropdowns = [
+    { el: elements.stressModel, defaultKey: "default_stress_model", fallbackPrefix: "openhermes" },
+    { el: elements.assistantModel, defaultKey: "default_advisor_model", fallbackPrefix: "hermes" },
+    { el: elements.scoringModel, defaultKey: "default_scoring_model", fallbackPrefix: "llama3.2" }
+  ];
+
+  for (const { el, defaultKey, fallbackPrefix } of dropdowns) {
+    if (!el) continue;
+    const currentVal = el.value;
+    el.innerHTML = "";
+    if (models.length === 0) {
+      el.append(new Option("Buscando...", ""));
+      continue;
+    }
+    for (const model of models) {
+      el.append(new Option(model, model));
+    }
+    // Restore previous selection or default to backend config
+    if (currentVal && models.includes(currentVal)) {
+      el.value = currentVal;
+    } else {
+      const backendDefault = state.defaults?.[defaultKey];
+      if (backendDefault && models.includes(backendDefault)) {
+        el.value = backendDefault;
+      } else {
+        const preferred = models.find((name) => name.includes(fallbackPrefix)) || models[0];
+        el.value = preferred;
+      }
+    }
   }
 }
 
@@ -594,6 +683,9 @@ function renderRun(run) {
   elements.livePoll.textContent = new Date().toLocaleTimeString("pt-BR");
   renderContextWindow(run);
   renderResults(run.results || []);
+  
+  // Real-time dynamic updates to PiP panel
+  updateRunPiP(run);
 }
 
 function renderContextWindow(run) {
@@ -689,6 +781,260 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+// PiP Panel Logic and Event Listeners
+let isDragging = false;
+let startX = 0;
+let startY = 0;
+let currentX = 0;
+let currentY = 0;
+let hasMoved = false;
+
+if (elements.pipHeader && elements.pipPanel && elements.btnPipToggle) {
+  // Set initial cursor style
+  elements.pipHeader.style.cursor = "grab";
+
+  elements.pipHeader.addEventListener("mousedown", (e) => {
+    if (e.target === elements.btnPipToggle) return;
+    isDragging = true;
+    startX = e.clientX - currentX;
+    startY = e.clientY - currentY;
+    elements.pipHeader.style.cursor = "grabbing";
+    hasMoved = false;
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    e.preventDefault();
+    const newX = e.clientX - startX;
+    const newY = e.clientY - startY;
+    if (Math.abs(newX - currentX) > 2 || Math.abs(newY - currentY) > 2) {
+      hasMoved = true;
+    }
+    currentX = newX;
+    currentY = newY;
+    elements.pipPanel.style.transform = `translate(${currentX}px, ${currentY}px)`;
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (!isDragging) return;
+    isDragging = false;
+    elements.pipHeader.style.cursor = "grab";
+  });
+
+  elements.pipHeader.addEventListener("click", (e) => {
+    if (e.target === elements.btnPipToggle) return;
+    // Only toggle minimized if the user didn't actively drag the panel around
+    if (!hasMoved) {
+      elements.pipPanel.classList.toggle("minimized");
+      elements.btnPipToggle.textContent = elements.pipPanel.classList.contains("minimized") ? "+" : "—";
+    }
+  });
+
+  elements.btnPipToggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    elements.pipPanel.classList.toggle("minimized");
+    elements.btnPipToggle.textContent = elements.pipPanel.classList.contains("minimized") ? "+" : "—";
+  });
+}
+
+function updateExecutionTrace(stepStates) {
+  const steps = ["ingestion", "validation", "conflict", "heuristic", "diagnostic", "recommendation"];
+  for (const step of steps) {
+    const el = document.querySelector(`#step-${step}`);
+    if (!el) continue;
+    el.className = "trace-step";
+    const status = stepStates[step];
+    if (status) {
+      el.classList.add(status);
+    }
+  }
+}
+
+function logToPip(cognitionState, logText, mode = "Observe", active = false, rulesTriggered = 0, totalRules = 8) {
+  if (elements.pipCognition) {
+    elements.pipCognition.textContent = cognitionState.toUpperCase();
+  }
+  
+  if (elements.pipPulse) {
+    if (active) {
+      elements.pipPulse.className = "pip-pulse active";
+    } else {
+      elements.pipPulse.className = "pip-pulse";
+    }
+  }
+  
+  if (elements.pipAuditTrace) {
+    const timestamp = new Date().toLocaleTimeString("pt-BR");
+    elements.pipAuditTrace.textContent = `[${timestamp}] ${logText}\n`;
+    elements.pipAuditTrace.scrollTop = elements.pipAuditTrace.scrollHeight;
+  }
+  
+  if (elements.pipMetaLatency) {
+    elements.pipMetaLatency.textContent = mode;
+  }
+  if (elements.pipMetaRules) {
+    elements.pipMetaRules.textContent = `${rulesTriggered} / ${totalRules}`;
+  }
+
+  // Handle active states on Advisor click
+  if (mode.includes("Running") || active) {
+    updateExecutionTrace({
+      ingestion: "active",
+      validation: "",
+      conflict: "",
+      heuristic: "",
+      diagnostic: "",
+      recommendation: ""
+    });
+    // Fast visual simulation triggers to map state progression for the user during the fetch call
+    setTimeout(() => {
+      const ingEl = document.querySelector("#step-ingestion");
+      if (ingEl && ingEl.classList.contains("active")) {
+        updateExecutionTrace({
+          ingestion: "completed",
+          validation: "active",
+          conflict: "",
+          heuristic: "",
+          diagnostic: "",
+          recommendation: ""
+        });
+      }
+    }, 150);
+    setTimeout(() => {
+      const valEl = document.querySelector("#step-validation");
+      if (valEl && valEl.classList.contains("active")) {
+        updateExecutionTrace({
+          ingestion: "completed",
+          validation: "completed",
+          conflict: "active",
+          heuristic: "",
+          diagnostic: "",
+          recommendation: ""
+        });
+      }
+    }, 300);
+    setTimeout(() => {
+      const conEl = document.querySelector("#step-conflict");
+      if (conEl && conEl.classList.contains("active")) {
+        updateExecutionTrace({
+          ingestion: "completed",
+          validation: "completed",
+          conflict: "completed",
+          heuristic: "active",
+          diagnostic: "",
+          recommendation: ""
+        });
+      }
+    }, 450);
+  } else if (cognitionState.includes("Concluída")) {
+    updateExecutionTrace({
+      ingestion: "completed",
+      validation: "completed",
+      conflict: "completed",
+      heuristic: "completed",
+      diagnostic: "completed",
+      recommendation: "completed"
+    });
+  } else if (cognitionState.includes("Falhou")) {
+    updateExecutionTrace({
+      ingestion: "completed",
+      validation: "failed",
+      conflict: "",
+      heuristic: "",
+      diagnostic: "",
+      recommendation: ""
+    });
+  }
+}
+
+function updateRunPiP(run) {
+  const progress = run.progress || {};
+  const events = progress.events || [];
+  const currentStage = progress.stage || run.status || "idle";
+  const currentModel = progress.current_model || "n/d";
+  
+  let logMsg = `Orquestrador MLOps: Status = ${run.status.toUpperCase()}\n`;
+  logMsg += `Fase Cognitiva: ${currentStage.toUpperCase()}\n`;
+  if (currentModel !== "n/d") {
+    logMsg += `Modelo em Inferência: ${currentModel}\n`;
+  }
+  
+  if (events.length > 0) {
+    logMsg += `\nREGISTROS DA THREAD DE EXECUÇÃO:\n`;
+    events.slice(-6).forEach(e => {
+      const time = e.at ? new Date(e.at).toLocaleTimeString("pt-BR") : "";
+      logMsg += `[${time}] ${e.message}\n`;
+    });
+  }
+  
+  const isActive = isActiveStatus(run.status);
+  const isError = run.status === "failed";
+  
+  if (elements.pipCognition) {
+    elements.pipCognition.textContent = currentStage.toUpperCase();
+  }
+  if (elements.pipMetaLatency) {
+    elements.pipMetaLatency.textContent = `Act / Run ${run.run_id}`;
+  }
+  if (elements.pipMetaRules) {
+    elements.pipMetaRules.textContent = `MLOps Act`;
+  }
+  
+  if (elements.pipPulse) {
+    if (isError) {
+      elements.pipPulse.className = "pip-pulse error";
+    } else if (isActive) {
+      elements.pipPulse.className = "pip-pulse active";
+    } else {
+      elements.pipPulse.className = "pip-pulse";
+    }
+  }
+  
+  if (elements.pipAuditTrace) {
+    elements.pipAuditTrace.textContent = logMsg;
+    elements.pipAuditTrace.scrollTop = elements.pipAuditTrace.scrollHeight;
+  }
+
+  // Update Execution Trace nodes live from backend states!
+  const stepStates = {
+    ingestion: "completed",
+    validation: "completed",
+    conflict: "",
+    heuristic: "",
+    diagnostic: "",
+    recommendation: ""
+  };
+  
+  if (currentStage === "pending" || currentStage === "created" || currentStage === "starting") {
+    stepStates.ingestion = "active";
+    stepStates.validation = "";
+  } else if (currentStage === "loading rubrics") {
+    stepStates.validation = "active";
+  } else if (currentStage === "generating stress prompts" || currentStage === "calling stress model" || currentStage === "generating stress follow-up model" || currentStage === "calling stress follow-up model") {
+    stepStates.conflict = "active";
+  } else if (currentStage === "generating candidates" || currentStage === "calling assistant model" || currentStage === "calling stress follow-up model") {
+    stepStates.conflict = "completed";
+    stepStates.heuristic = "active";
+  } else if (currentStage === "scoring candidates") {
+    stepStates.conflict = "completed";
+    stepStates.heuristic = "completed";
+    stepStates.diagnostic = "active";
+  } else if (currentStage === "completed" || run.status === "success") {
+    stepStates.conflict = "completed";
+    stepStates.heuristic = "completed";
+    stepStates.diagnostic = "completed";
+    stepStates.recommendation = "completed";
+  } else if (run.status === "failed") {
+    stepStates.ingestion = "completed";
+    stepStates.validation = "completed";
+    stepStates.conflict = "failed";
+    stepStates.heuristic = "failed";
+    stepStates.diagnostic = "failed";
+    stepStates.recommendation = "failed";
+  }
+  updateExecutionTrace(stepStates);
 }
 
 elements.form.addEventListener("submit", handleRunSubmit);

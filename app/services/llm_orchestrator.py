@@ -113,16 +113,45 @@ class LLMOrchestratorService:
                 data = json.loads(raw) if raw else {}
                 models = data.get("models", [])
                 
-                # We are only "truly" ok if we can reach the service AND get some models
+                # Verify presence of default models per role
+                from app.core.config import get_settings
+                settings = get_settings()
+                required_models = {
+                    settings.default_advisor_model,
+                    settings.default_stress_model,
+                    settings.default_judge_model,
+                    settings.default_scoring_model,
+                    settings.default_rubric_model,
+                }
+                
+                downloaded_names = {m.get("name") for m in models if m.get("name")}
+                missing_models = []
+                for req in required_models:
+                    clean_req = req.split("/")[-1] if "/" in req else req
+                    has_exact = clean_req in downloaded_names
+                    has_tagged = f"{clean_req}:latest" in downloaded_names if ":" not in clean_req else False
+                    has_untagged = clean_req.split(":")[0] in downloaded_names if ":" in clean_req else False
+                    if not (has_exact or has_tagged or has_untagged):
+                        missing_models.append(req)
+                
                 has_models = isinstance(models, list) and len(models) > 0
+                has_required = len(missing_models) == 0
+                
+                error_msg = None
+                if not has_models:
+                    error_msg = "Service up but 0 models found. Pull a model with 'ollama pull'."
+                elif not has_required:
+                    error_msg = f"Missing configured role models in local Ollama: {', '.join(missing_models)}. Please pull them."
                 
                 return {
                     "ok": True,
-                    "ready": has_models,
+                    "ready": has_models and has_required,
                     "url": self.ollama_base_url,
+                    "endpoint": self.ollama_base_url,
                     "model_count": len(models) if isinstance(models, list) else 0,
                     "models": models if isinstance(models, list) else [],
-                    "error": None if has_models else "Service up but 0 models found. Pull a model with 'ollama pull'."
+                    "missing_models": missing_models,
+                    "error": error_msg
                 }
         except URLError as error:
             return {

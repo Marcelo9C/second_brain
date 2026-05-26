@@ -244,7 +244,7 @@ def get_rubric_generation_service() -> RubricGenerationService:
         providers={
             "ollama": OllamaProvider(
                 base_url=settings.ollama_base_url,
-                fallback_model=settings.localization_rubric_model,
+                fallback_model=settings.default_rubric_model,
             ),
             "gemini": GeminiProvider(
                 api_key=settings.gemini_api_key,
@@ -264,7 +264,7 @@ def get_candidate_recommendation_service() -> CandidateRecommendationService:
         providers={
             "ollama": OllamaProvider(
                 base_url=settings.ollama_base_url,
-                fallback_model=settings.localization_rubric_model,
+                fallback_model=settings.default_advisor_model,
             ),
             "gemini": GeminiProvider(
                 api_key=settings.gemini_api_key,
@@ -285,7 +285,7 @@ def get_rubric_candidate_scoring_service() -> RubricCandidateScoringService:
         providers={
             "ollama": OllamaProvider(
                 base_url=settings.ollama_base_url,
-                fallback_model=settings.localization_rubric_model,
+                fallback_model=settings.default_scoring_model,
             ),
             "gemini": GeminiProvider(
                 api_key=settings.gemini_api_key,
@@ -307,7 +307,7 @@ def get_hermes_orchestrator():
         providers={
             "ollama": OllamaProvider(
                 base_url=settings.ollama_base_url,
-                fallback_model=settings.localization_rubric_model,
+                fallback_model=settings.default_stress_model,
             ),
             "gemini": GeminiProvider(
                 api_key=settings.gemini_api_key,

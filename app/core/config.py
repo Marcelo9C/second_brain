@@ -22,6 +22,11 @@ class Settings:
     postgres_schema: str = "research"
     ollama_base_url: str = "http://127.0.0.1:11434"
     localization_rubric_model: str = "llama3.2:3b"
+    default_advisor_model: str = "hermes:latest"
+    default_stress_model: str = "openhermes:latest"
+    default_judge_model: str = "hermes:latest"
+    default_scoring_model: str = "llama3.2:3b"
+    default_rubric_model: str = "llama3.2:3b"
     gemini_api_key: str | None = None
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_default_model: str = "gemma-4-26b-a4b-it"
@@ -65,6 +70,26 @@ def get_settings() -> Settings:
         localization_rubric_model=os.environ.get(
             "LOCALIZATION_RUBRIC_MODEL",
             Settings.localization_rubric_model,
+        ),
+        default_advisor_model=os.environ.get(
+            "DEFAULT_ADVISOR_MODEL",
+            Settings.default_advisor_model,
+        ),
+        default_stress_model=os.environ.get(
+            "DEFAULT_STRESS_MODEL",
+            Settings.default_stress_model,
+        ),
+        default_judge_model=os.environ.get(
+            "DEFAULT_JUDGE_MODEL",
+            Settings.default_judge_model,
+        ),
+        default_scoring_model=os.environ.get(
+            "DEFAULT_SCORING_MODEL",
+            Settings.default_scoring_model,
+        ),
+        default_rubric_model=os.environ.get(
+            "DEFAULT_RUBRIC_MODEL",
+            Settings.default_rubric_model,
         ),
         gemini_api_key=os.environ.get("GEMINI_API_KEY"),
         gemini_base_url=os.environ.get("GEMINI_BASE_URL", Settings.gemini_base_url),

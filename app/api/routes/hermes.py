@@ -4,11 +4,24 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
-from app.dependencies import get_hermes_advisor, get_hermes_orchestrator
+from app.dependencies import get_hermes_advisor, get_hermes_orchestrator, get_settings
 from app.schemas.hermes import HermesRunCreate
 from app.schemas.hermes_advise import HermesAdviseRequest, HermesAdviseResponse
 
 router = APIRouter(prefix="/api/hermes", tags=["hermes"])
+
+
+@router.get("/config")
+def get_hermes_config() -> dict[str, str]:
+    """Return configured model defaults per role."""
+    settings = get_settings()
+    return {
+        "default_advisor_model": settings.default_advisor_model,
+        "default_stress_model": settings.default_stress_model,
+        "default_judge_model": settings.default_judge_model,
+        "default_scoring_model": settings.default_scoring_model,
+        "default_rubric_model": settings.default_rubric_model,
+    }
 
 
 @router.post("/advise")
